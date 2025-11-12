@@ -22,6 +22,9 @@ resources:
 # default, aiding admins in cluster management. Those roles are
 # not used by the developer-portal-controller itself. You can comment the following lines
 # if you do not want those helpers be installed with your Project.
+- apikey_admin_role.yaml
+- apikey_editor_role.yaml
+- apikey_viewer_role.yaml
 - apiproduct_admin_role.yaml
 - apiproduct_editor_role.yaml
 - apiproduct_viewer_role.yaml
