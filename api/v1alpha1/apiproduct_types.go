@@ -17,25 +17,123 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"github.com/samber/lo"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	gatewayapiv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
+
+	planpolicyv1alpha1 "github.com/kuadrant/kuadrant-operator/cmd/extensions/plan-policy/api/v1alpha1"
+)
+
+const (
+	// Status conditions
+	StatusConditionReady                string = "Ready"
+	StatusConditionPlanPolicyDiscovered string = "PlanPolicyDiscovered"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
+type DocumentationSpec struct {
+	// url to openapi specification (json/yaml)
+	OpenAPISpec *string `json:"openAPISpec,omitempty"`
+
+	// url to swagger ui or similar interactive docs
+	SwaggerUI *string `json:"swaggerUI,omitempty"`
+
+	// url to general documentation
+	DocsURL *string `json:"docsURL,omitempty"`
+
+	// url to git repository (shown as view source in backstage)
+	GitRepository *string `json:"gitRepository,omitempty"`
+
+	// techdocs reference (e.g. url:https://github.com/org/repo or dir:. for local docs)
+	TechdocsRef *string `json:"techdocsRef,omitempty"`
+}
+
+type ContactSpec struct {
+	// team name
+	Team *string `json:"team,omitempty"`
+
+	// contact email
+	Email *string `json:"email,omitempty"`
+
+	// slack channel (e.g. #api-support)
+	Slack *string `json:"slack,omitempty"`
+
+	// url to team page or support portal
+	Url *string `json:"url,omitempty"`
+}
+
 // APIProductSpec defines the desired state of APIProduct.
 type APIProductSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// human-readable name for the api product
+	DisplayName string `json:"displayName"`
 
-	// Foo is an example field of APIProduct. Edit apiproduct_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// detailed description of the api product
+	Description *string `json:"description,omitempty"`
+
+	// api version (e.g. v1, v2)
+	Version *string `json:"version,omitempty"`
+
+	// whether access requests are auto-approved or require manual review
+	// +kubebuilder:validation:Enum=automatic;manual
+	// +kubebuilder:default=manual
+	ApprovalMode string `json:"approvalMode"`
+
+	// tags for categorisation and search
+	Tags []string `json:"tags,omitempty"`
+
+	// reference to the httproute that this api product represents
+	// +kubebuilder:validation:XValidation:rule="self.group == 'gateway.networking.k8s.io'",message="Invalid targetRef.group. The only supported value is 'gateway.networking.k8s.io'"
+	// +kubebuilder:validation:XValidation:rule="self.kind == 'HTTPRoute'",message="Invalid targetRef.kind. The only supported value is 'HTTPRoute'"
+	TargetRef gatewayapiv1alpha2.LocalPolicyTargetReference `json:"targetRef"`
+
+	// api documentation links
+	Documentation *DocumentationSpec `json:"documentation,omitempty"`
+
+	// contact information for api owners
+	Contact *ContactSpec `json:"contact,omitempty"`
+
+	// controls whether the api product appears in the backstage catalog (Draft = hidden, Published = visible)
+	// +kubebuilder:validation:Enum=Draft;Published
+	// +kubebuilder:default=Draft
+	PublishStatus string `json:"publishStatus"`
+}
+
+type PlanSpec struct {
+	// Tier this plan represents.
+	Tier string `json:"tier"`
+
+	// Limits contains the list of limits that the plan enforces.
+	// +optional
+	Limits planpolicyv1alpha1.Limits `json:"limits,omitempty"`
 }
 
 // APIProductStatus defines the observed state of APIProduct.
 type APIProductStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// ObservedGeneration reflects the generation of the most recently observed spec.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// list of planpolicies discovered from httproute
+	DiscoveredPlans []PlanSpec `json:"discoveredPlans,omitempty"`
+
+	// Represents the observations of a foo's current state.
+	// +patchMergeKey=type
+	// +patchStrategy=merge
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
+}
+
+func PlanPolicyIntoPlans(plan *planpolicyv1alpha1.PlanPolicy) []PlanSpec {
+	if plan == nil {
+		return nil
+	}
+
+	return lo.Map(plan.Spec.Plans, func(p planpolicyv1alpha1.Plan, _ int) PlanSpec {
+		return PlanSpec{Tier: p.Tier, Limits: p.Limits}
+	})
 }
 
 // +kubebuilder:object:root=true

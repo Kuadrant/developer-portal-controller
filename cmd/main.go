@@ -38,6 +38,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	planpolicyv1alpha1 "github.com/kuadrant/kuadrant-operator/cmd/extensions/plan-policy/api/v1alpha1"
 
 	devportalv1alpha1 "github.com/kuadrant/developer-portal-controller/api/v1alpha1"
 	"github.com/kuadrant/developer-portal-controller/internal/controller"
@@ -56,6 +59,10 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(devportalv1alpha1.AddToScheme(scheme))
+
+	utilruntime.Must(planpolicyv1alpha1.AddToScheme(scheme))
+
+	utilruntime.Must(gwapiv1.Install(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
