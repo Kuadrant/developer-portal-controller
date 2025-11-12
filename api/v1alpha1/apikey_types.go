@@ -20,26 +20,117 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // APIKeySpec defines the desired state of APIKey.
 type APIKeySpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// APIName is the reference to the APIProduct name
+	// +kubebuilder:validation:Required
+	APIName string `json:"apiName"`
 
-	// Foo is an example field of APIKey. Edit apikey_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// APINamespace is the namespace of the APIProduct
+	// +kubebuilder:validation:Required
+	APINamespace string `json:"apiNamespace"`
+
+	// PlanTier is the tier of the plan (e.g., "premium", "basic", "enterprise")
+	// +kubebuilder:validation:Required
+	PlanTier string `json:"planTier"`
+
+	// UseCase describes how the API key will be used
+	// +kubebuilder:validation:Required
+	UseCase string `json:"useCase"`
+
+	// RequestedBy contains information about who requested the API key
+	// +kubebuilder:validation:Required
+	RequestedBy RequestedBy `json:"requestedBy"`
+
+	// ApprovalMode determines how the API key is approved
+	// Valid values are "automatic" or "manual"
+	// +kubebuilder:validation:Enum=automatic;manual
+	// +kubebuilder:default=automatic
+	// +optional
+	ApprovalMode string `json:"approvalMode,omitempty"`
+}
+
+// RequestedBy contains information about the requester.
+type RequestedBy struct {
+	// UserID is the identifier of the user requesting the API key
+	// +kubebuilder:validation:Required
+	UserID string `json:"userId"`
+
+	// Email is the email address of the user
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern=`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`
+	Email string `json:"email"`
 }
 
 // APIKeyStatus defines the observed state of APIKey.
 type APIKeyStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Phase represents the current phase of the APIKey
+	// Valid values are "Pending", "Approved", or "Rejected"
+	// +kubebuilder:validation:Enum=Pending;Approved;Rejected
+	// +optional
+	Phase string `json:"phase,omitempty"`
+
+	// APIHostname is the hostname from the HTTPRoute
+	// +optional
+	APIHostname string `json:"apiHostname,omitempty"`
+
+	// APIBasePath is the base path for the API
+	// +optional
+	APIBasePath string `json:"apiBasePath,omitempty"`
+
+	// ReviewedBy indicates who approved or rejected the request
+	// +optional
+	ReviewedBy string `json:"reviewedBy,omitempty"`
+
+	// ReviewedAt is the timestamp when the request was reviewed
+	// +optional
+	ReviewedAt *metav1.Time `json:"reviewedAt,omitempty"`
+
+	// PlanLimits contains the rate limits for the plan
+	// +optional
+	PlanLimits *PlanLimits `json:"planLimits,omitempty"`
+
+	// SecretRef is a reference to the created Secret
+	// +optional
+	SecretRef *SecretReference `json:"secretRef,omitempty"`
+
+	// Conditions represent the latest available observations of the APIKey's state
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// PlanLimits defines rate limits for a plan.
+type PlanLimits struct {
+	// RequestsPerMinute is the number of requests allowed per minute
+	// +optional
+	RequestsPerMinute *int64 `json:"requestsPerMinute,omitempty"`
+
+	// RequestsPerHour is the number of requests allowed per hour
+	// +optional
+	RequestsPerHour *int64 `json:"requestsPerHour,omitempty"`
+
+	// RequestsPerDay is the number of requests allowed per day
+	// +optional
+	RequestsPerDay *int64 `json:"requestsPerDay,omitempty"`
+}
+
+// SecretReference contains a reference to a Secret.
+type SecretReference struct {
+	// The name of the secret in the Authorino's namespace to select from.
+	Name string `json:"name"`
+
+	// The key of the secret to select from.  Must be a valid secret key.
+	Key string `json:"key"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:shortName=apik
+// +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
+// +kubebuilder:printcolumn:name="API",type=string,JSONPath=`.spec.apiName`
+// +kubebuilder:printcolumn:name="Plan",type=string,JSONPath=`.spec.planTier`
+// +kubebuilder:printcolumn:name="User",type=string,JSONPath=`.spec.requestedBy.userId`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // APIKey is the Schema for the apikeys API.
 type APIKey struct {

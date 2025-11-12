@@ -4,13 +4,13 @@ metadata:
   labels:
     app.kubernetes.io/name: developer-portal-controller
     app.kubernetes.io/managed-by: kustomize
-  name: apikey-sample
+  name: apikey-manual-sample
 spec:
   apiName: my-api-product
   apiNamespace: default
-  planTier: premium
-  useCase: "Integration with our mobile application for user authentication and data retrieval"
+  planTier: enterprise
+  useCase: "Production deployment for enterprise customer integration"
   requestedBy:
-    userId: user-12345
-    email: developer@example.com
-  approvalMode: automatic
+    userId: enterprise-user-789
+    email: enterprise@example.com
+  approvalMode: manual
