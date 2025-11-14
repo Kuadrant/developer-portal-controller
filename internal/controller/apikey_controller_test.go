@@ -255,6 +255,139 @@ var _ = Describe("APIKey Controller", func() {
 		})
 	})
 
+	Context("When reconciling a Rejected APIKey", func() {
+		const (
+			apiKeyName     = "test-apikey-rejected"
+			apiProductName = "test-api-product-rejected"
+			namespace      = "default"
+		)
+
+		ctx := context.Background()
+
+		typeNamespacedName := types.NamespacedName{
+			Name:      apiKeyName,
+			Namespace: namespace,
+		}
+
+		BeforeEach(func() {
+			By("Creating the APIProduct")
+			apiProduct := &devportalv1alpha1.APIProduct{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      apiProductName,
+					Namespace: namespace,
+				},
+				Spec: devportalv1alpha1.APIProductSpec{
+					ApprovalMode: "automatic",
+				},
+			}
+			Expect(k8sClient.Create(ctx, apiProduct)).To(Succeed())
+
+			By("Creating the APIKey")
+			apiKey := &devportalv1alpha1.APIKey{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      apiKeyName,
+					Namespace: namespace,
+				},
+				Spec: devportalv1alpha1.APIKeySpec{
+					APIProductRef: &devportalv1alpha1.APIProductReference{
+						Name:      apiProductName,
+						Namespace: namespace,
+					},
+					PlanTier: "basic",
+					UseCase:  "Testing rejection",
+					RequestedBy: devportalv1alpha1.RequestedBy{
+						UserID: "rejected-user",
+						Email:  "rejected@example.com",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, apiKey)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			By("Cleaning up the APIKey")
+			apiKey := &devportalv1alpha1.APIKey{}
+			err := k8sClient.Get(ctx, typeNamespacedName, apiKey)
+			if err == nil {
+				Expect(k8sClient.Delete(ctx, apiKey)).To(Succeed())
+			}
+
+			By("Cleaning up the APIProduct")
+			apiProduct := &devportalv1alpha1.APIProduct{}
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: apiProductName, Namespace: namespace}, apiProduct)
+			if err == nil {
+				Expect(k8sClient.Delete(ctx, apiProduct)).To(Succeed())
+			}
+		})
+
+		It("should delete the Secret and update status when rejected", func() {
+			controllerReconciler := &APIKeyReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			By("Running reconciliation to approve and create Secret")
+			for i := 0; i < 3; i++ {
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: typeNamespacedName,
+				})
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			By("Verifying the APIKey is approved and Secret is created")
+			apiKey := &devportalv1alpha1.APIKey{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, typeNamespacedName, apiKey)
+				return err == nil && apiKey.Status.Phase == "Approved" && apiKey.Status.SecretRef != nil
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+
+			By("Verifying the Secret exists")
+			secret := &corev1.Secret{}
+			secretKey := types.NamespacedName{
+				Name:      apiKey.Status.SecretRef.Name,
+				Namespace: apiKey.Namespace,
+			}
+			err := k8sClient.Get(ctx, secretKey, secret)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Changing the APIKey phase to Rejected")
+			err = k8sClient.Get(ctx, typeNamespacedName, apiKey)
+			Expect(err).NotTo(HaveOccurred())
+			apiKey.Status.Phase = "Rejected"
+			err = k8sClient.Status().Update(ctx, apiKey)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Running reconciliation for the rejected APIKey")
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying the Secret was deleted")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, secretKey, secret)
+				return err != nil
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+
+			By("Verifying the SecretRef is cleared from status")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, typeNamespacedName, apiKey)
+				return err == nil && apiKey.Status.SecretRef == nil
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+
+			By("Verifying the Ready condition is set to False with Rejected reason")
+			err = k8sClient.Get(ctx, typeNamespacedName, apiKey)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(apiKey.Status.Conditions).ToNot(BeEmpty())
+
+			readyCondition := apiKey.Status.Conditions[len(apiKey.Status.Conditions)-1]
+			Expect(readyCondition.Type).To(Equal("Ready"))
+			Expect(readyCondition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(readyCondition.Reason).To(Equal("Rejected"))
+			Expect(readyCondition.Message).To(Equal("API key request has been rejected"))
+		})
+	})
+
 	Context("Helper functions", func() {
 		It("should generate unique API keys", func() {
 			key1, err1 := generateAPIKey()
