@@ -20,15 +20,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+type APIProductReference struct {
+	Name string `json:"name"`
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+}
+
 // APIKeySpec defines the desired state of APIKey.
 type APIKeySpec struct {
-	// APIName is the reference to the APIProduct name
-	// +kubebuilder:validation:Required
-	APIName string `json:"apiName"`
-
-	// APINamespace is the namespace of the APIProduct
-	// +kubebuilder:validation:Required
-	APINamespace string `json:"apiNamespace"`
+	// Reference to the APIProduct this APIKey belongs to.
+	APIProductRef *APIProductReference `json:"apiProductRef"`
 
 	// PlanTier is the tier of the plan (e.g., "premium", "basic", "enterprise")
 	// +kubebuilder:validation:Required
@@ -41,13 +42,6 @@ type APIKeySpec struct {
 	// RequestedBy contains information about who requested the API key
 	// +kubebuilder:validation:Required
 	RequestedBy RequestedBy `json:"requestedBy"`
-
-	// ApprovalMode determines how the API key is approved
-	// Valid values are "automatic" or "manual"
-	// +kubebuilder:validation:Enum=automatic;manual
-	// +kubebuilder:default=automatic
-	// +optional
-	ApprovalMode string `json:"approvalMode,omitempty"`
 }
 
 // RequestedBy contains information about the requester.

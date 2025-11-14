@@ -150,12 +150,44 @@ func (r *APIKeyReconciler) reconcileDelete(ctx context.Context, apiKey *devporta
 func (r *APIKeyReconciler) reconcilePending(ctx context.Context, apiKey *devportalv1alpha1.APIKey) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
+	// Get APIProduct
+	// Fetch the APIProduct to get additional metadata
+	apiProduct := &devportalv1alpha1.APIProduct{}
+	apiProductKey := types.NamespacedName{
+		Name:      apiKey.Spec.APIProductRef.Name,
+		Namespace: apiKey.Spec.APIProductRef.Namespace,
+	}
+	if err := r.Get(ctx, apiProductKey, apiProduct); err != nil {
+		if apierrors.IsNotFound(err) {
+			logger.Error(err, "Referenced APIProduct not found", "apiProduct", apiProductKey)
+			meta.SetStatusCondition(&apiKey.Status.Conditions, metav1.Condition{
+				Type:               "Ready",
+				Status:             metav1.ConditionFalse,
+				Reason:             "APIProductNotFound",
+				Message:            fmt.Sprintf("APIProduct %s not found", apiProductKey),
+				ObservedGeneration: apiKey.Generation,
+			})
+			if err := r.Status().Update(ctx, apiKey); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
+		logger.Error(err, "Failed to get APIProduct")
+		return ctrl.Result{}, err
+	}
+
+	// Set APIProduct as the owner of the APIKey for garbage collection
+	if err := controllerutil.SetOwnerReference(apiProduct, apiKey, r.Scheme); err != nil {
+		logger.Error(err, "Failed to set owner reference on APIKey")
+		return ctrl.Result{}, err
+	}
+
 	now := metav1.Now()
 	apiKey.Status.ReviewedBy = "system"
 	apiKey.Status.ReviewedAt = &now
 
 	// Check approval mode
-	if apiKey.Spec.ApprovalMode == apiKeyApprovalModeAutomatic {
+	if apiProduct.Spec.ApprovalMode == apiKeyApprovalModeAutomatic {
 		// Automatically approved
 		apiKey.Status.Phase = apiKeyPhaseApproved
 		// Set condition
@@ -210,31 +242,6 @@ func (r *APIKeyReconciler) reconcileApproved(ctx context.Context, apiKey *devpor
 		// Secret was deleted, recreate it
 	}
 
-	// Fetch the APIProduct to get additional metadata
-	apiProduct := &devportalv1alpha1.APIProduct{}
-	apiProductKey := types.NamespacedName{
-		Name:      apiKey.Spec.APIName,
-		Namespace: apiKey.Spec.APINamespace,
-	}
-	if err := r.Get(ctx, apiProductKey, apiProduct); err != nil {
-		if apierrors.IsNotFound(err) {
-			logger.Error(err, "Referenced APIProduct not found", "apiProduct", apiProductKey)
-			meta.SetStatusCondition(&apiKey.Status.Conditions, metav1.Condition{
-				Type:               "Ready",
-				Status:             metav1.ConditionFalse,
-				Reason:             "APIProductNotFound",
-				Message:            fmt.Sprintf("APIProduct %s not found", apiProductKey),
-				ObservedGeneration: apiKey.Generation,
-			})
-			if err := r.Status().Update(ctx, apiKey); err != nil {
-				return ctrl.Result{}, err
-			}
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-		}
-		logger.Error(err, "Failed to get APIProduct")
-		return ctrl.Result{}, err
-	}
-
 	// Generate API key
 	generatedKey, err := generateAPIKey()
 	if err != nil {
@@ -246,13 +253,13 @@ func (r *APIKeyReconciler) reconcileApproved(ctx context.Context, apiKey *devpor
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-apikey", apiKey.Name),
-			Namespace: apiKey.Spec.APINamespace,
+			Namespace: apiKey.Namespace,
 			Annotations: map[string]string{
 				apiKeySecretAnnotationPlan: apiKey.Spec.PlanTier,
 				apiKeySecretAnnotationUser: apiKey.Spec.RequestedBy.UserID,
 			},
 			Labels: map[string]string{
-				"app":                         apiKey.Spec.APIName,
+				"app":                         apiKey.Spec.APIProductRef.Name,
 				apiKeySecretLabelAuthorinoKey: apiKeySecretLabelAuthorinoValue,
 			},
 		},
@@ -262,8 +269,8 @@ func (r *APIKeyReconciler) reconcileApproved(ctx context.Context, apiKey *devpor
 		},
 	}
 
-	// Set APIProduct as the owner of the Secret for garbage collection
-	if err := controllerutil.SetOwnerReference(apiProduct, secret, r.Scheme); err != nil {
+	// Set APIKey as the owner of the Secret for garbage collection
+	if err := controllerutil.SetOwnerReference(apiKey, secret, r.Scheme); err != nil {
 		logger.Error(err, "Failed to set owner reference on Secret")
 		return ctrl.Result{}, err
 	}

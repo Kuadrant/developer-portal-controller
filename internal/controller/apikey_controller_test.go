@@ -53,7 +53,10 @@ var _ = Describe("APIKey Controller", func() {
 					Name:      apiProductName,
 					Namespace: namespace,
 				},
-				Spec: devportalv1alpha1.APIProductSpec{},
+
+				Spec: devportalv1alpha1.APIProductSpec{
+					ApprovalMode: "automatic",
+				},
 			}
 			Expect(k8sClient.Create(ctx, apiProduct)).To(Succeed())
 
@@ -64,15 +67,16 @@ var _ = Describe("APIKey Controller", func() {
 					Namespace: namespace,
 				},
 				Spec: devportalv1alpha1.APIKeySpec{
-					APIName:      apiProductName,
-					APINamespace: namespace,
-					PlanTier:     "premium",
-					UseCase:      "Testing automatic approval",
+					APIProductRef: &devportalv1alpha1.APIProductReference{
+						Name:      apiProductName,
+						Namespace: namespace,
+					},
+					PlanTier: "premium",
+					UseCase:  "Testing automatic approval",
 					RequestedBy: devportalv1alpha1.RequestedBy{
 						UserID: "test-user",
 						Email:  "test@example.com",
 					},
-					ApprovalMode: "automatic",
 				},
 			}
 			Expect(k8sClient.Create(ctx, apiKey)).To(Succeed())
@@ -170,7 +174,9 @@ var _ = Describe("APIKey Controller", func() {
 					Name:      apiProductName,
 					Namespace: namespace,
 				},
-				Spec: devportalv1alpha1.APIProductSpec{},
+				Spec: devportalv1alpha1.APIProductSpec{
+					ApprovalMode: "manual",
+				},
 			}
 			Expect(k8sClient.Create(ctx, apiProduct)).To(Succeed())
 
@@ -181,15 +187,16 @@ var _ = Describe("APIKey Controller", func() {
 					Namespace: namespace,
 				},
 				Spec: devportalv1alpha1.APIKeySpec{
-					APIName:      apiProductName,
-					APINamespace: namespace,
-					PlanTier:     "enterprise",
-					UseCase:      "Testing manual approval",
+					APIProductRef: &devportalv1alpha1.APIProductReference{
+						Name:      apiProductName,
+						Namespace: namespace,
+					},
+					PlanTier: "enterprise",
+					UseCase:  "Testing manual approval",
 					RequestedBy: devportalv1alpha1.RequestedBy{
 						UserID: "manual-user",
 						Email:  "manual@example.com",
 					},
-					ApprovalMode: "manual",
 				},
 			}
 			Expect(k8sClient.Create(ctx, apiKey)).To(Succeed())
