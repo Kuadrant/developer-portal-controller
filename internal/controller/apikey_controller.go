@@ -106,8 +106,7 @@ func (r *APIKeyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	case apiKeyPhaseApproved:
 		return r.reconcileApproved(ctx, apiKey)
 	case apiKeyPhaseRejected:
-		// Nothing to do for rejected keys
-		return ctrl.Result{}, nil
+		return r.reconcileRejected(ctx, apiKey)
 	}
 
 	return ctrl.Result{}, nil
@@ -303,6 +302,49 @@ func (r *APIKeyReconciler) reconcileApproved(ctx context.Context, apiKey *devpor
 		Status:             metav1.ConditionTrue,
 		Reason:             "SecretCreated",
 		Message:            "API key secret has been created successfully",
+		ObservedGeneration: apiKey.Generation,
+	})
+
+	if err := r.Status().Update(ctx, apiKey); err != nil {
+		logger.Error(err, "Failed to update APIKey status")
+		return ctrl.Result{}, err
+	}
+
+	return ctrl.Result{}, nil
+}
+
+// reconcileRejected handles APIKeys in the Rejected phase.
+func (r *APIKeyReconciler) reconcileRejected(ctx context.Context, apiKey *devportalv1alpha1.APIKey) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
+	// Delete the Secret if it exists
+	if apiKey.Status.SecretRef != nil {
+		secretKey := types.NamespacedName{
+			Name:      apiKey.Status.SecretRef.Name,
+			Namespace: apiKey.Namespace,
+		}
+		secret := &corev1.Secret{}
+		if err := r.Get(ctx, secretKey, secret); err == nil {
+			if err := r.Delete(ctx, secret); err != nil {
+				logger.Error(err, "Failed to delete Secret for rejected APIKey")
+				return ctrl.Result{}, err
+			}
+			logger.Info("Deleted Secret for rejected APIKey", "secret", secretKey)
+		} else if !apierrors.IsNotFound(err) {
+			logger.Error(err, "Failed to get Secret")
+			return ctrl.Result{}, err
+		}
+
+		// Clear the SecretRef from status
+		apiKey.Status.SecretRef = nil
+	}
+
+	// Set condition to indicate the APIKey was rejected
+	meta.SetStatusCondition(&apiKey.Status.Conditions, metav1.Condition{
+		Type:               "Ready",
+		Status:             metav1.ConditionFalse,
+		Reason:             "Rejected",
+		Message:            "API key request has been rejected",
 		ObservedGeneration: apiKey.Generation,
 	})
 
