@@ -28,8 +28,12 @@ type APIProductSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of APIProduct. Edit apiproduct_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// ApprovalMode determines how the API key is approved
+	// Valid values are "automatic" or "manual"
+	// +kubebuilder:validation:Enum=automatic;manual
+	// +kubebuilder:default=automatic
+	// +optional
+	ApprovalMode string `json:"approvalMode,omitempty"`
 }
 
 // APIProductStatus defines the observed state of APIProduct.
