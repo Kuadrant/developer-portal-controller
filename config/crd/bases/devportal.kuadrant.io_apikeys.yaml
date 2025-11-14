@@ -57,21 +57,16 @@ spec:
           spec:
             description: APIKeySpec defines the desired state of APIKey.
             properties:
-              apiName:
-                description: APIName is the reference to the APIProduct name
-                type: string
-              apiNamespace:
-                description: APINamespace is the namespace of the APIProduct
-                type: string
-              approvalMode:
-                default: automatic
-                description: |-
-                  ApprovalMode determines how the API key is approved
-                  Valid values are "automatic" or "manual"
-                enum:
-                - automatic
-                - manual
-                type: string
+              apiProductRef:
+                description: Reference to the APIProduct this APIKey belongs to.
+                properties:
+                  name:
+                    type: string
+                  namespace:
+                    type: string
+                required:
+                - name
+                type: object
               planTier:
                 description: PlanTier is the tier of the plan (e.g., "premium", "basic",
                   "enterprise")
@@ -96,8 +91,7 @@ spec:
                 description: UseCase describes how the API key will be used
                 type: string
             required:
-            - apiName
-            - apiNamespace
+            - apiProductRef
             - planTier
             - requestedBy
             - useCase

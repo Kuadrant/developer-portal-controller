@@ -39,9 +39,14 @@ spec:
           spec:
             description: APIProductSpec defines the desired state of APIProduct.
             properties:
-              foo:
-                description: Foo is an example field of APIProduct. Edit apiproduct_types.go
-                  to remove/update
+              approvalMode:
+                default: automatic
+                description: |-
+                  ApprovalMode determines how the API key is approved
+                  Valid values are "automatic" or "manual"
+                enum:
+                - automatic
+                - manual
                 type: string
             type: object
           status:
