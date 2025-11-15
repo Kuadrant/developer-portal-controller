@@ -311,4 +311,76 @@ var _ = Describe("APIProduct Controller", func() {
 			Expect(*basicPlan.Limits.Daily).To(Equal(100))
 		})
 	})
+
+	Context("When apiproduct targets non-existing httproute", func() {
+		const apiProductName = "test-apiproduct-notfound"
+		const nonExistingRouteName = "non-existing-route"
+
+		ctx := context.Background()
+
+		var (
+			apiProductKey types.NamespacedName
+			apiproduct    *devportalv1alpha1.APIProduct
+		)
+
+		BeforeEach(func() {
+			// Create APIProduct targeting a non-existing HTTPRoute
+			apiProductKey = types.NamespacedName{
+				Name:      apiProductName,
+				Namespace: testNamespace,
+			}
+			apiproduct = &devportalv1alpha1.APIProduct{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "APIProduct",
+					APIVersion: devportalv1alpha1.GroupVersion.String(),
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      apiProductKey.Name,
+					Namespace: apiProductKey.Namespace,
+				},
+				Spec: devportalv1alpha1.APIProductSpec{
+					TargetRef: gatewayapiv1alpha2.LocalPolicyTargetReference{
+						Group: gwapiv1.GroupName,
+						Name:  nonExistingRouteName,
+						Kind:  "HTTPRoute",
+					},
+					PublishStatus: "Draft",
+					ApprovalMode:  "manual",
+				},
+			}
+
+			Expect(k8sClient.Create(ctx, apiproduct)).ToNot(HaveOccurred())
+		})
+
+		It("should set ready condition to false when httproute not found", func() {
+			By("Reconciling the created resource")
+			controllerReconciler := &APIProductReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			err = k8sClient.Get(ctx, apiProductKey, apiproduct)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking status conditions reflect httproute not found")
+			// Check Ready condition is False
+			readyCondition := meta.FindStatusCondition(apiproduct.Status.Conditions, devportalv1alpha1.StatusConditionReady)
+			Expect(readyCondition).NotTo(BeNil())
+			Expect(readyCondition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(readyCondition.Reason).To(Equal("HTTPRouteNotFound"))
+			Expect(readyCondition.Message).To(ContainSubstring(nonExistingRouteName))
+
+			// Check PlanPolicyDiscovered condition is False
+			planPolicyCondition := meta.FindStatusCondition(apiproduct.Status.Conditions, devportalv1alpha1.StatusConditionPlanPolicyDiscovered)
+			Expect(planPolicyCondition).NotTo(BeNil())
+			Expect(planPolicyCondition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(planPolicyCondition.Reason).To(Equal("NotFound"))
+
+			By("Checking no plans are discovered")
+			Expect(apiproduct.Status.DiscoveredPlans).To(BeEmpty())
+		})
+	})
 })
