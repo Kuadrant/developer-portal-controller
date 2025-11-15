@@ -465,4 +465,123 @@ var _ = Describe("APIProduct Controller", func() {
 			Expect(apiproduct.Status.DiscoveredPlans).To(BeEmpty())
 		})
 	})
+
+	Context("When httproute is not accepted", func() {
+		const apiProductName = "test-apiproduct-notaccepted"
+		const planPolicyName = "test-planpolicy-notaccepted"
+		const testGatewayNameNotAccepted = "my-gateway-notaccepted"
+		const testHTTPRouteNameNotAccepted = "my-route-notaccepted"
+
+		ctx := context.Background()
+
+		var (
+			apiProductKey types.NamespacedName
+			apiproduct    *devportalv1alpha1.APIProduct
+			planPolicy    *planpolicyv1alpha1.PlanPolicy
+		)
+
+		BeforeEach(func() {
+			// Create namespace-dependent objects after namespace is created
+			apiProductKey = types.NamespacedName{
+				Name:      apiProductName,
+				Namespace: testNamespace,
+			}
+			apiproduct = &devportalv1alpha1.APIProduct{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "APIProduct",
+					APIVersion: devportalv1alpha1.GroupVersion.String(),
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      apiProductKey.Name,
+					Namespace: apiProductKey.Namespace,
+				},
+				Spec: devportalv1alpha1.APIProductSpec{
+					TargetRef: gatewayapiv1alpha2.LocalPolicyTargetReference{
+						Group: gwapiv1.GroupName,
+						Name:  testHTTPRouteNameNotAccepted,
+						Kind:  "HTTPRoute",
+					},
+					PublishStatus: "Draft",
+					ApprovalMode:  "manual",
+				},
+			}
+
+			planPolicy = &planpolicyv1alpha1.PlanPolicy{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "PlanPolicy",
+					APIVersion: planpolicyv1alpha1.GroupVersion.String(),
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      planPolicyName,
+					Namespace: apiProductKey.Namespace,
+				},
+				Spec: planpolicyv1alpha1.PlanPolicySpec{
+					TargetRef: gatewayapiv1alpha2.LocalPolicyTargetReferenceWithSectionName{
+						LocalPolicyTargetReference: gatewayapiv1alpha2.LocalPolicyTargetReference{
+							Group: gwapiv1.GroupName,
+							Name:  gwapiv1.ObjectName(testHTTPRouteNameNotAccepted),
+							Kind:  "HTTPRoute",
+						},
+					},
+					Plans: []planpolicyv1alpha1.Plan{
+						{
+							Tier:      "enterprise",
+							Predicate: "auth.identity.tier == 'enterprise'",
+							Limits: planpolicyv1alpha1.Limits{
+								Daily: ptr.To(100000),
+							},
+						},
+					},
+				},
+			}
+
+			gateway = buildBasicGateway(testGatewayNameNotAccepted, testNamespace)
+			Expect(k8sClient.Create(ctx, gateway)).To(Succeed())
+			route = buildBasicHttpRoute(testHTTPRouteNameNotAccepted, testGatewayNameNotAccepted, testNamespace, []string{"notaccepted.example.com"})
+			Expect(k8sClient.Create(ctx, route)).ToNot(HaveOccurred())
+
+			// Set HTTPRoute status with accepted condition = False
+			addNotAcceptedCondition(route)
+			Expect(k8sClient.Status().Update(ctx, route)).ToNot(HaveOccurred())
+
+			Expect(k8sClient.Create(ctx, apiproduct)).ToNot(HaveOccurred())
+			Expect(k8sClient.Create(ctx, planPolicy)).ToNot(HaveOccurred())
+		})
+
+		It("should set ready condition to false when httproute is not accepted", func() {
+			By("Reconciling the created resource")
+			controllerReconciler := &APIProductReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			err = k8sClient.Get(ctx, apiProductKey, apiproduct)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking ready condition is false (httproute not accepted)")
+			// Check Ready condition is False because HTTPRoute is not accepted
+			readyCondition := meta.FindStatusCondition(apiproduct.Status.Conditions, devportalv1alpha1.StatusConditionReady)
+			Expect(readyCondition).NotTo(BeNil())
+			Expect(readyCondition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(readyCondition.Reason).To(Equal("HTTPRouteNotAccepted"))
+
+			By("Checking planpolicy is still discovered")
+			// PlanPolicy can still be discovered even if HTTPRoute is not accepted
+			planPolicyCondition := meta.FindStatusCondition(apiproduct.Status.Conditions, devportalv1alpha1.StatusConditionPlanPolicyDiscovered)
+			Expect(planPolicyCondition).NotTo(BeNil())
+			Expect(planPolicyCondition.Status).To(Equal(metav1.ConditionTrue))
+			Expect(planPolicyCondition.Reason).To(Equal("Found"))
+
+			By("Checking plans are discovered despite httproute not being accepted")
+			// Plans should still be discovered from the PlanPolicy
+			Expect(apiproduct.Status.DiscoveredPlans).To(HaveLen(1))
+			enterprisePlan := apiproduct.Status.DiscoveredPlans[0]
+			Expect(enterprisePlan.Tier).To(Equal("enterprise"))
+			Expect(enterprisePlan.Limits.Daily).NotTo(BeNil())
+			Expect(*enterprisePlan.Limits.Daily).To(Equal(100000))
+		})
+	})
 })

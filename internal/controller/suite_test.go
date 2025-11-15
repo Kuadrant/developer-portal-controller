@@ -252,3 +252,28 @@ func addAcceptedCondition(route *gwapiv1.HTTPRoute) {
 		Conditions:     conditions,
 	})
 }
+
+func addNotAcceptedCondition(route *gwapiv1.HTTPRoute) {
+	var conditions []metav1.Condition
+	meta.SetStatusCondition(&conditions, metav1.Condition{
+		Type:    string(gwapiv1.RouteConditionAccepted),
+		Status:  metav1.ConditionFalse,
+		Reason:  "NoMatchingListenerHostname",
+		Message: "No matching listener hostname",
+	})
+
+	// Create a parent ref from the first parent ref in the route spec
+	parentRef := gwapiv1.ParentReference{
+		Name: route.Spec.ParentRefs[0].Name,
+	}
+	// Only include namespace if it was explicitly set and is not empty
+	if route.Spec.ParentRefs[0].Namespace != nil && *route.Spec.ParentRefs[0].Namespace != "" {
+		parentRef.Namespace = route.Spec.ParentRefs[0].Namespace
+	}
+
+	route.Status.Parents = append(route.Status.Parents, gwapiv1.RouteParentStatus{
+		ParentRef:      parentRef,
+		ControllerName: gwapiv1.GatewayController("example.com/gateway-controller"),
+		Conditions:     conditions,
+	})
+}
