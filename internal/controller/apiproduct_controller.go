@@ -18,11 +18,25 @@ package controller
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"slices"
 
+	"github.com/samber/lo"
+	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	planpolicyv1alpha1 "github.com/kuadrant/kuadrant-operator/cmd/extensions/plan-policy/api/v1alpha1"
 
 	devportalv1alpha1 "github.com/kuadrant/developer-portal-controller/api/v1alpha1"
 )
@@ -37,27 +51,246 @@ type APIProductReconciler struct {
 // +kubebuilder:rbac:groups=devportal.kuadrant.io,resources=apiproducts/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=devportal.kuadrant.io,resources=apiproducts/finalizers,verbs=update
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the APIProduct object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.21.0/pkg/reconcile
-func (r *APIProductReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+// +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=get;list;watch
+// +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes/status,verbs=get
 
-	// TODO(user): your logic here
+// +kubebuilder:rbac:groups=extensions.kuadrant.io,resources=planpolicies,verbs=get;list;watch
+// +kubebuilder:rbac:groups=extensions.kuadrant.io,resources=planpolicies/status,verbs=get
+
+// Reconcile handles reconciling all resources in a single call. Any resource event should enqueue the
+// same reconcile.Request containing this controller name, i.e. "apiproduct". This allows multiple resource updates to
+// be handled by a single call to Reconcile. The reconcile.Request DOES NOT map to a specific resource.
+func (r *APIProductReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, error) {
+	logger := logf.FromContext(ctx)
+
+	logger.V(1).Info("reconciling apiproducts")
+	defer logger.V(1).Info("reconciling apiproducts: done")
+
+	planList := &planpolicyv1alpha1.PlanPolicyList{}
+	err := r.List(ctx, planList)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	ctx = WithPlanPolicies(ctx, planList)
+
+	apiProductListRaw := &devportalv1alpha1.APIProductList{}
+	err = r.List(ctx, apiProductListRaw)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// filter out flagged for deletion
+	apiProductList := lo.Filter(apiProductListRaw.Items, func(api devportalv1alpha1.APIProduct, _ int) bool {
+		return api.GetDeletionTimestamp() == nil
+	})
+
+	for idx := range apiProductList {
+		err := r.reconcileStatus(ctx, &apiProductList[idx])
+		if err != nil {
+			if apierrors.IsConflict(err) {
+				// Ignore conflicts, resource might just be outdated.
+				logger.Info("failed to update status: resource might just be outdated")
+				return ctrl.Result{Requeue: true}, nil
+			}
+			return ctrl.Result{}, err
+		}
+	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *APIProductReconciler) reconcileStatus(ctx context.Context, apiProductObj *devportalv1alpha1.APIProduct) error {
+	logger := logf.FromContext(ctx, "apiproduct", client.ObjectKeyFromObject(apiProductObj))
+
+	newStatus, err := r.calculateStatus(ctx, apiProductObj)
+	if err != nil {
+		return err
+	}
+
+	equalStatus := equality.Semantic.DeepEqual(newStatus, apiProductObj.Status)
+	if equalStatus && apiProductObj.Generation == apiProductObj.Status.ObservedGeneration {
+		logger.V(1).Info("apiproduct status unchanged, skipping update")
+		return nil
+	}
+	apiProductObj.Status = *newStatus
+
+	updateErr := r.Client.Status().Update(ctx, apiProductObj)
+	if updateErr != nil {
+		return updateErr
+	}
+
+	logger.Info("status updated")
+
+	return nil
+}
+
+func (r *APIProductReconciler) calculateStatus(ctx context.Context, apiProductObj *devportalv1alpha1.APIProduct) (*devportalv1alpha1.APIProductStatus, error) {
+	newStatus := &devportalv1alpha1.APIProductStatus{
+		ObservedGeneration: apiProductObj.Generation,
+		// Copy initial conditions. Otherwise, status will always be updated
+		Conditions: slices.Clone(apiProductObj.Status.Conditions),
+	}
+
+	planPolicy, err := r.findPlanPolicyForAPIProduct(ctx, apiProductObj)
+	if err != nil {
+		return nil, err
+	}
+
+	newStatus.DiscoveredPlans = devportalv1alpha1.PlanPolicyIntoPlans(planPolicy)
+
+	planPolicyDiscoveredCond, err := r.planPolicyDiscoveredCondition(ctx, apiProductObj)
+	if err != nil {
+		return nil, err
+	}
+
+	meta.SetStatusCondition(&newStatus.Conditions, *planPolicyDiscoveredCond)
+
+	readyCond, err := r.readyCondition(ctx, apiProductObj)
+	if err != nil {
+		return nil, err
+	}
+
+	meta.SetStatusCondition(&newStatus.Conditions, *readyCond)
+
+	return newStatus, nil
+}
+
+func (r *APIProductReconciler) readyCondition(ctx context.Context, apiProductObj *devportalv1alpha1.APIProduct) (*metav1.Condition, error) {
+	cond := &metav1.Condition{
+		Type: devportalv1alpha1.StatusConditionReady,
+	}
+
+	route := &gwapiv1.HTTPRoute{}
+	rKey := client.ObjectKey{ // Its deployment is built after the same name and namespace
+		Namespace: apiProductObj.Namespace,
+		Name:      string(apiProductObj.Spec.TargetRef.Name),
+	}
+	err := r.Get(ctx, rKey, route)
+	if client.IgnoreNotFound(err) != nil {
+		return nil, err
+	}
+
+	if apierrors.IsNotFound(err) {
+		cond.Status = metav1.ConditionFalse
+		cond.Reason = "HTTPRouteNotFound"
+		cond.Message = fmt.Sprintf("HTTPRoute %s not found", rKey)
+		return cond, nil
+	}
+
+	httpRouteConditions := lo.FlatMap(route.Status.Parents, func(parent gwapiv1.RouteParentStatus, _ int) []metav1.Condition {
+		return parent.Conditions
+	})
+
+	accepted := lo.ContainsBy(httpRouteConditions, func(cond metav1.Condition) bool {
+		return cond.Type == string(gwapiv1.RouteConditionAccepted) && cond.Status == metav1.ConditionTrue
+	})
+
+	if accepted {
+		cond.Status = metav1.ConditionTrue
+		cond.Reason = "HTTPRouteAccepted"
+		cond.Message = fmt.Sprintf("HTTPRoute %s accepted", rKey)
+		return cond, nil
+	}
+
+	cond.Status = metav1.ConditionFalse
+	cond.Reason = "HTTPRouteNotAccepted"
+	cond.Message = fmt.Sprintf("HTTPRoute %s not accepted", rKey)
+
+	return cond, nil
+}
+
+func (r *APIProductReconciler) planPolicyDiscoveredCondition(ctx context.Context, apiProductObj *devportalv1alpha1.APIProduct) (*metav1.Condition, error) {
+	cond := &metav1.Condition{
+		Type:   devportalv1alpha1.StatusConditionPlanPolicyDiscovered,
+		Status: metav1.ConditionTrue,
+		Reason: "Found",
+	}
+
+	planPolicy, err := r.findPlanPolicyForAPIProduct(ctx, apiProductObj)
+	if err != nil {
+		return nil, err
+	}
+
+	if planPolicy == nil {
+		cond.Status = metav1.ConditionFalse
+		cond.Reason = "NotFound"
+		cond.Message = "PlanPolicy not found"
+		return cond, nil
+	} else {
+		cond.Message = fmt.Sprintf("Discovered PlanPolicy %s targeting %s %s", planPolicy.Name, planPolicy.Spec.TargetRef.Kind, planPolicy.Spec.TargetRef.Name)
+	}
+
+	return cond, nil
+}
+
+func (r *APIProductReconciler) findPlanPolicyForAPIProduct(ctx context.Context, apiProductObj *devportalv1alpha1.APIProduct) (*planpolicyv1alpha1.PlanPolicy, error) {
+	route := &gwapiv1.HTTPRoute{}
+	rKey := client.ObjectKey{ // Its deployment is built after the same name and namespace
+		Namespace: apiProductObj.Namespace,
+		Name:      string(apiProductObj.Spec.TargetRef.Name),
+	}
+	err := r.Get(ctx, rKey, route)
+	if client.IgnoreNotFound(err) != nil {
+		return nil, err
+	}
+
+	if apierrors.IsNotFound(err) {
+		return nil, nil
+	}
+
+	planPolicies := GetPlanPolicies(ctx)
+
+	if planPolicies == nil {
+		// should not happen
+		// If it does, check context content
+		return nil, errors.New("cannot read plan policies")
+	}
+
+	// Look for plan policy targeting the httproute.
+	// if not found, try targeting parents
+
+	planPolicy, ok := lo.Find(planPolicies.Items, func(p planpolicyv1alpha1.PlanPolicy) bool {
+		return p.Spec.TargetRef.Kind == "HTTPRoute" &&
+			p.Namespace == route.Namespace &&
+			string(p.Spec.TargetRef.Name) == route.Name
+	})
+
+	if ok {
+		return &planPolicy, nil
+	}
+
+	gatewayPlanPolicies := lo.Filter(planPolicies.Items, func(p planpolicyv1alpha1.PlanPolicy, _ int) bool {
+		return p.Spec.TargetRef.Kind == "Gateway"
+	})
+
+	planPolicy, ok = lo.Find(gatewayPlanPolicies, func(plan planpolicyv1alpha1.PlanPolicy) bool {
+		return lo.ContainsBy(route.Spec.ParentRefs, func(parentRef gwapiv1.ParentReference) bool {
+			parentNamespace := ptr.Deref(parentRef.Namespace, gwapiv1.Namespace(route.Namespace))
+			return plan.Spec.TargetRef.Name == parentRef.Name &&
+				plan.Namespace == string(parentNamespace)
+		})
+	})
+
+	if ok {
+		return &planPolicy, nil
+	}
+
+	return nil, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *APIProductReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&devportalv1alpha1.APIProduct{}).
+		Watches(&devportalv1alpha1.APIProduct{}, handler.EnqueueRequestsFromMapFunc(r.enqueueClass)).
+		Watches(&planpolicyv1alpha1.PlanPolicy{}, handler.EnqueueRequestsFromMapFunc(r.enqueueClass)).
+		Watches(&gwapiv1.HTTPRoute{}, handler.EnqueueRequestsFromMapFunc(r.enqueueClass)).
 		Named("apiproduct").
 		Complete(r)
+}
+
+func (r *APIProductReconciler) enqueueClass(_ context.Context, _ client.Object) []ctrl.Request {
+	return []ctrl.Request{{NamespacedName: types.NamespacedName{
+		Name: string("apiproduct"),
+	}}}
 }
