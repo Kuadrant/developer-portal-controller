@@ -18,67 +18,167 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gatewayapiv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
+
+	planpolicyv1alpha1 "github.com/kuadrant/kuadrant-operator/cmd/extensions/plan-policy/api/v1alpha1"
 
 	devportalv1alpha1 "github.com/kuadrant/developer-portal-controller/api/v1alpha1"
 )
 
 var _ = Describe("APIProduct Controller", func() {
-	Context("When reconciling a resource", func() {
-		const resourceName = "test-resource"
+	const (
+		nodeTimeOut       = NodeTimeout(time.Second * 30)
+		TestGatewayName   = "my-gateway"
+		TestHTTPRouteName = "my-route"
+	)
+	var (
+		testNamespace string
+		gateway       *gwapiv1.Gateway
+		route         *gwapiv1.HTTPRoute
+	)
+
+	BeforeEach(func(ctx SpecContext) {
+		createNamespaceWithContext(ctx, &testNamespace)
+	})
+
+	AfterEach(func(ctx SpecContext) {
+		deleteNamespaceWithContext(ctx, &testNamespace)
+	}, nodeTimeOut)
+
+	Context("When planpolicy targets httproute", func() {
+		const apiProductName = "test-apiproduct"
+		const planPolicyName = "test-planpolicy"
 
 		ctx := context.Background()
 
-		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
-		}
-		apiproduct := &devportalv1alpha1.APIProduct{}
+		var (
+			apiProductKey types.NamespacedName
+			apiproduct    *devportalv1alpha1.APIProduct
+			planPolicy    *planpolicyv1alpha1.PlanPolicy
+		)
 
 		BeforeEach(func() {
-			By("creating the custom resource for the Kind APIProduct")
-			err := k8sClient.Get(ctx, typeNamespacedName, apiproduct)
-			if err != nil && errors.IsNotFound(err) {
-				resource := &devportalv1alpha1.APIProduct{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
-					},
-					// TODO(user): Specify other spec details if needed.
-				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+			// Create namespace-dependent objects after namespace is created
+			apiProductKey = types.NamespacedName{
+				Name:      apiProductName,
+				Namespace: testNamespace,
 			}
+			apiproduct = &devportalv1alpha1.APIProduct{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "APIProduct",
+					APIVersion: devportalv1alpha1.GroupVersion.String(),
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      apiProductKey.Name,
+					Namespace: apiProductKey.Namespace,
+				},
+				Spec: devportalv1alpha1.APIProductSpec{
+					TargetRef: gatewayapiv1alpha2.LocalPolicyTargetReference{
+						Group: gwapiv1.GroupName,
+						Name:  TestHTTPRouteName,
+						Kind:  "HTTPRoute",
+					},
+					PublishStatus: "Draft",
+					ApprovalMode:  "manual",
+				},
+			}
+
+			planPolicy = &planpolicyv1alpha1.PlanPolicy{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "PlanPolicy",
+					APIVersion: planpolicyv1alpha1.GroupVersion.String(),
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      planPolicyName,
+					Namespace: apiProductKey.Namespace,
+				},
+				Spec: planpolicyv1alpha1.PlanPolicySpec{
+					TargetRef: gatewayapiv1alpha2.LocalPolicyTargetReferenceWithSectionName{
+						LocalPolicyTargetReference: gatewayapiv1alpha2.LocalPolicyTargetReference{
+							Group: gwapiv1.GroupName,
+							Name:  gwapiv1.ObjectName(TestHTTPRouteName),
+							Kind:  "HTTPRoute",
+						},
+					},
+					Plans: []planpolicyv1alpha1.Plan{
+						{
+							Tier:      "gold",
+							Predicate: "auth.identity.tier == 'gold'",
+							Limits: planpolicyv1alpha1.Limits{
+								Daily: ptr.To(10000),
+							},
+						},
+						{
+							Tier:      "silver",
+							Predicate: "auth.identity.tier == 'silver'",
+							Limits: planpolicyv1alpha1.Limits{
+								Daily: ptr.To(1000),
+							},
+						},
+					},
+				},
+			}
+
+			gateway = buildBasicGateway(TestGatewayName, testNamespace)
+			Expect(k8sClient.Create(ctx, gateway)).To(Succeed())
+			route = buildBasicHttpRoute(TestHTTPRouteName, TestGatewayName, testNamespace, []string{"example.com"})
+			Expect(k8sClient.Create(ctx, route)).ToNot(HaveOccurred())
+			addAcceptedCondition(route)
+			Expect(k8sClient.Status().Update(ctx, route)).ToNot(HaveOccurred())
+			Expect(k8sClient.Create(ctx, apiproduct)).ToNot(HaveOccurred())
+			Expect(k8sClient.Create(ctx, planPolicy)).ToNot(HaveOccurred())
 		})
 
-		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &devportalv1alpha1.APIProduct{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Cleanup the specific resource instance APIProduct")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-		})
-		It("should successfully reconcile the resource", func() {
+		It("should successfully reconcile the resource status", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &APIProductReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
 			}
 
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
 			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+
+			err = k8sClient.Get(ctx, apiProductKey, apiproduct)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking status conditions")
+			// Check Ready condition
+			readyCondition := meta.FindStatusCondition(apiproduct.Status.Conditions, devportalv1alpha1.StatusConditionReady)
+			Expect(readyCondition).NotTo(BeNil())
+			Expect(readyCondition.Status).To(Equal(metav1.ConditionTrue))
+			Expect(readyCondition.Reason).To(Equal("HTTPRouteAccepted"))
+
+			// Check PlanPolicyDiscovered condition
+			planPolicyCondition := meta.FindStatusCondition(apiproduct.Status.Conditions, devportalv1alpha1.StatusConditionPlanPolicyDiscovered)
+			Expect(planPolicyCondition).NotTo(BeNil())
+			Expect(planPolicyCondition.Status).To(Equal(metav1.ConditionTrue))
+			Expect(planPolicyCondition.Reason).To(Equal("Found"))
+
+			By("Checking discovered plans")
+			Expect(apiproduct.Status.DiscoveredPlans).To(HaveLen(2))
+
+			// Check gold plan
+			goldPlan := apiproduct.Status.DiscoveredPlans[0]
+			Expect(goldPlan.Tier).To(Equal("gold"))
+			Expect(goldPlan.Limits.Daily).NotTo(BeNil())
+			Expect(*goldPlan.Limits.Daily).To(Equal(10000))
+
+			// Check silver plan
+			silverPlan := apiproduct.Status.DiscoveredPlans[1]
+			Expect(silverPlan.Tier).To(Equal("silver"))
+			Expect(silverPlan.Limits.Daily).NotTo(BeNil())
+			Expect(*silverPlan.Limits.Daily).To(Equal(1000))
 		})
 	})
 })

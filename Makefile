@@ -83,7 +83,7 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
-test: manifests generate fmt vet setup-envtest ## Run tests.
+test: manifests generate fmt vet setup-envtest gateway-api-crds kuadrant-crds ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
 # TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
@@ -206,6 +206,26 @@ undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.
 LOCALBIN ?= $(shell pwd)/bin
 $(LOCALBIN):
 	mkdir -p $(LOCALBIN)
+
+## Gateway API version
+GATEWAY_API_VERSION ?= v1.2.1
+
+.PHONY: gateway-api-crds
+gateway-api-crds: ## Download Gateway API CRDs for testing
+	@mkdir -p $(LOCALBIN)/crd/gateway-api
+	@if [ ! -f $(LOCALBIN)/crd/gateway-api/gateway.networking.k8s.io_gatewayclasses.yaml ]; then \
+		echo "Downloading Gateway API CRDs $(GATEWAY_API_VERSION)..."; \
+		curl -sSL https://github.com/kubernetes-sigs/gateway-api/releases/download/$(GATEWAY_API_VERSION)/standard-install.yaml -o $(LOCALBIN)/crd/gateway-api/standard-install.yaml; \
+	fi
+
+.PHONY: kuadrant-crds
+kuadrant-crds: ## Copy Kuadrant Operator CRDs for testing
+	@mkdir -p $(LOCALBIN)/crd/kuadrant
+	@echo "Copying Kuadrant Operator CRDs..."
+	@KUADRANT_DIR=$$(go list -m -f '{{.Dir}}' github.com/kuadrant/kuadrant-operator); \
+	if [ -d "$$KUADRANT_DIR/config/crd/bases" ]; then \
+		cp $$KUADRANT_DIR/config/crd/bases/extensions.kuadrant.io_planpolicies.yaml $(LOCALBIN)/crd/kuadrant/ 2>/dev/null || true; \
+	fi
 
 ## Tool Binaries
 KUBECTL ?= kubectl

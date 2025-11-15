@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/samber/lo"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -35,7 +36,6 @@ import (
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	planpolicyv1alpha1 "github.com/kuadrant/kuadrant-operator/cmd/extensions/plan-policy/api/v1alpha1"
-	"github.com/samber/lo"
 
 	devportalv1alpha1 "github.com/kuadrant/developer-portal-controller/api/v1alpha1"
 )
