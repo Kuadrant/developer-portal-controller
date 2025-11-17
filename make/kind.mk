@@ -11,3 +11,11 @@ kind-create-cluster: kind ## Create the "kuadrant-local" kind cluster.
 .PHONY: kind-delete-cluster
 kind-delete-cluster: kind ## Delete the "kuadrant-local" kind cluster.
 	- $(KIND) delete cluster --name $(KIND_CLUSTER_NAME)
+
+kind-load-image: ## Load image to local cluster
+	$(eval TMP_DIR := $(shell mktemp -d))
+	$(CONTAINER_TOOL) save -o $(TMP_DIR)/image.tar $(IMG) \
+	   && KIND_EXPERIMENTAL_PROVIDER=$(CONTAINER_TOOL) $(KIND) load image-archive $(TMP_DIR)/image.tar $(IMG) --name $(KIND_CLUSTER_NAME) ; \
+	   EXITVAL=$$? ; \
+	   rm -rf $(TMP_DIR) ;\
+	   exit $${EXITVAL}

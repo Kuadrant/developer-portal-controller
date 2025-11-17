@@ -194,10 +194,18 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
+	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG_BASE):latest
 
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+
+.PHONY: local-deploy
+local-deploy: ## Deploy Kuadrant Operator from the current code
+	$(MAKE) docker-build IMG=$(IMAGE_TAG_BASE):dev
+	$(MAKE) kind-load-image IMG=$(IMAGE_TAG_BASE):dev
+	$(MAKE) deploy IMG=$(IMAGE_TAG_BASE):dev
+	kubectl -n developer-portal-controller-system wait --timeout=300s --for=condition=Available deployments --all
 
 ##@ Dependencies
 

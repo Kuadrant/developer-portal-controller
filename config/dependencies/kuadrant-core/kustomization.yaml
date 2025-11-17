@@ -1,0 +1,3 @@
+---
+resources:
+  - github.com/kuadrant/kuadrant-operator/config/crd?ref=main
