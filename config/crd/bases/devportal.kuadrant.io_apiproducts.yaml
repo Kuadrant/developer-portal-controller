@@ -82,16 +82,16 @@ spec:
                 description: api documentation links
                 properties:
                   docsURL:
-                    description: url to general documentation
+                    description: URL to general documentation
                     type: string
                   gitRepository:
-                    description: url to git repository (shown as view source in backstage)
+                    description: URL to git repository (shown as view source in backstage)
                     type: string
-                  openAPISpec:
-                    description: url to openapi specification (json/yaml)
+                  openAPISpecURL:
+                    description: URL to openapi specification (json/yaml)
                     type: string
                   swaggerUI:
-                    description: url to swagger ui or similar interactive docs
+                    description: URL to swagger ui or similar interactive docs
                     type: string
                   techdocsRef:
                     description: techdocs reference (e.g. url:https://github.com/org/repo

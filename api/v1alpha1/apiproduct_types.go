@@ -34,16 +34,16 @@ const (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 type DocumentationSpec struct {
-	// url to openapi specification (json/yaml)
-	OpenAPISpec *string `json:"openAPISpec,omitempty"`
+	// URL to openapi specification (json/yaml)
+	OpenAPISpecURL *string `json:"openAPISpecURL,omitempty"`
 
-	// url to swagger ui or similar interactive docs
+	// URL to swagger ui or similar interactive docs
 	SwaggerUI *string `json:"swaggerUI,omitempty"`
 
-	// url to general documentation
+	// URL to general documentation
 	DocsURL *string `json:"docsURL,omitempty"`
 
-	// url to git repository (shown as view source in backstage)
+	// URL to git repository (shown as view source in backstage)
 	GitRepository *string `json:"gitRepository,omitempty"`
 
 	// techdocs reference (e.g. url:https://github.com/org/repo or dir:. for local docs)
