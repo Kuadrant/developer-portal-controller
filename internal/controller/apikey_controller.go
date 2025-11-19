@@ -43,7 +43,7 @@ const (
 	apiKeySecretAnnotationUser      = "secret.kuadrant.io/user-id"
 	apiKeySecretLabelAuthorinoKey   = "authorino.kuadrant.io/managed-by"
 	apiKeySecretLabelAuthorinoValue = "authorino"
-	apiKeySecretKey                 = "api-key"
+	apiKeySecretKey                 = "api_key"
 	apiKeyLength                    = 32 // bytes, will be base64 encoded
 	apiKeyPhaseApproved             = "Approved"
 	apiKeyPhasePending              = "Pending"
@@ -78,14 +78,9 @@ func (r *APIKeyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		logger.Error(err, "Failed to get APIKey")
 		return ctrl.Result{}, err
 	}
-
-	// Add finalizer if it doesn't exist
-	if !controllerutil.ContainsFinalizer(apiKey, apiKeyFinalizer) {
-		controllerutil.AddFinalizer(apiKey, apiKeyFinalizer)
-		if err := r.Update(ctx, apiKey); err != nil {
-			logger.Error(err, "Failed to add finalizer")
-			return ctrl.Result{}, err
-		}
+	// It'll be deleted
+	if apiKey.GetDeletionTimestamp() != nil {
+		logger.Info("APIKey marked to be deleted")
 		return ctrl.Result{}, nil
 	}
 
@@ -186,41 +181,15 @@ func (r *APIKeyReconciler) reconcileApproved(ctx context.Context, apiKey *devpor
 		// Secret was deleted, recreate it
 	}
 
-	// Generate API key
-	generatedKey, err := generateAPIKey()
+	// Create Secret
+	secret, err := createSecret(apiKey)
 	if err != nil {
-		logger.Error(err, "Failed to generate API key")
+		logger.Error(err, "Failed to create secret")
 		return ctrl.Result{}, err
 	}
 
-	// Create Secret in the APIProduct's namespace
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-apikey", apiKey.Name),
-			Namespace: apiKey.Namespace,
-			Annotations: map[string]string{
-				apiKeySecretAnnotationPlan: apiKey.Spec.PlanTier,
-				apiKeySecretAnnotationUser: apiKey.Spec.RequestedBy.UserID,
-			},
-			Labels: map[string]string{
-				"app":                         apiKey.Spec.APIProductRef.Name,
-				apiKeySecretLabelAuthorinoKey: apiKeySecretLabelAuthorinoValue,
-			},
-		},
-		Type: corev1.SecretTypeOpaque,
-		StringData: map[string]string{
-			apiKeySecretKey: generatedKey,
-		},
-	}
-
-	// Set APIKey as the owner of the Secret for garbage collection
-	if err := controllerutil.SetOwnerReference(apiKey, secret, r.Scheme); err != nil {
-		logger.Error(err, "Failed to set owner reference on Secret")
-		return ctrl.Result{}, err
-	}
-
-	// Create the Secret
-	if err := r.Create(ctx, secret); err != nil {
+	// Reconcile creation of the Secret
+	if err = r.Create(ctx, secret); err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			// Update existing Secret
 			if err := r.Update(ctx, secret); err != nil {
@@ -234,6 +203,12 @@ func (r *APIKeyReconciler) reconcileApproved(ctx context.Context, apiKey *devpor
 	}
 
 	logger.Info("Created Secret for APIKey", "secret", secret.Name, "namespace", secret.Namespace)
+
+	// Set APIKey as the owner of the Secret for garbage collection
+	if err = controllerutil.SetOwnerReference(apiKey, secret, r.Scheme); err != nil {
+		logger.Error(err, "Failed to set owner reference on Secret")
+		return ctrl.Result{}, err
+	}
 
 	// Update the APIKey obj
 	if err = r.Update(ctx, apiKey); err != nil {
@@ -250,7 +225,7 @@ func (r *APIKeyReconciler) reconcileApproved(ctx context.Context, apiKey *devpor
 	setReadyCondition(apiKey, metav1.ConditionTrue, "SecretCreated",
 		"API key secret has been created successfully")
 
-	if err := r.Status().Update(ctx, apiKey); err != nil {
+	if err = r.Status().Update(ctx, apiKey); err != nil {
 		logger.Error(err, "Failed to update APIKey status")
 		return ctrl.Result{}, err
 	}
@@ -314,6 +289,34 @@ func generateAPIKey() (string, error) {
 		return "", fmt.Errorf("failed to generate random bytes: %w", err)
 	}
 	return base64.URLEncoding.EncodeToString(b), nil
+}
+
+// createSecret creates the APIKey Secret
+func createSecret(apiKey *devportalv1alpha1.APIKey) (*corev1.Secret, error) {
+	// Generate API key
+	generatedKey, err := generateAPIKey()
+	if err != nil {
+		return nil, err
+	}
+
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-apikey-secret", apiKey.Name),
+			Namespace: apiKey.Namespace,
+			Annotations: map[string]string{
+				apiKeySecretAnnotationPlan: apiKey.Spec.PlanTier,
+				apiKeySecretAnnotationUser: apiKey.Spec.RequestedBy.UserID,
+			},
+			Labels: map[string]string{
+				"app":                         apiKey.Spec.APIProductRef.Name,
+				apiKeySecretLabelAuthorinoKey: apiKeySecretLabelAuthorinoValue,
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		StringData: map[string]string{
+			apiKeySecretKey: generatedKey,
+		},
+	}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
