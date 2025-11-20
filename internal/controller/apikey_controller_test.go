@@ -24,6 +24,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	_ "k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -108,22 +109,6 @@ var _ = Describe("APIKey Controller", func() {
 				},
 			}
 			Expect(k8sClient.Create(ctx, apiKey)).To(Succeed())
-		})
-
-		AfterEach(func() {
-			By("Cleaning up the APIKey")
-			apiKey := &devportalv1alpha1.APIKey{}
-			err := k8sClient.Get(ctx, apiKeyNamespacedName, apiKey)
-			if err == nil {
-				Expect(k8sClient.Delete(ctx, apiKey)).To(Succeed())
-			}
-
-			By("Cleaning up the APIProduct")
-			apiProduct := &devportalv1alpha1.APIProduct{}
-			err = k8sClient.Get(ctx, apiKeyNamespacedName, apiProduct)
-			if err == nil {
-				Expect(k8sClient.Delete(ctx, apiProduct)).To(Succeed())
-			}
 		})
 
 		It("should automatically approve and create Secret", func() {
@@ -234,22 +219,6 @@ var _ = Describe("APIKey Controller", func() {
 				},
 			}
 			Expect(k8sClient.Create(ctx, apiKey)).To(Succeed())
-		})
-
-		AfterEach(func() {
-			By("Cleaning up the APIKey")
-			apiKey := &devportalv1alpha1.APIKey{}
-			err := k8sClient.Get(ctx, apiKeyNamespacedName, apiKey)
-			if err == nil {
-				Expect(k8sClient.Delete(ctx, apiKey)).To(Succeed())
-			}
-
-			By("Cleaning up the APIProduct")
-			apiProduct := &devportalv1alpha1.APIProduct{}
-			err = k8sClient.Get(ctx, apiProductNamespacedName, apiProduct)
-			if err == nil {
-				Expect(k8sClient.Delete(ctx, apiProduct)).To(Succeed())
-			}
 		})
 
 		It("should remain in Pending status without automatic approval", func() {
@@ -407,7 +376,7 @@ var _ = Describe("APIKey Controller", func() {
 			By("Verifying the Secret was deleted")
 			Eventually(func() bool {
 				err := k8sClient.Get(ctx, secretKey, secret)
-				return err != nil
+				return apierrors.IsNotFound(err)
 			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
 
 			By("Verifying the SecretRef is cleared from status")
