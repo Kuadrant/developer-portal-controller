@@ -20,10 +20,10 @@ import (
 	"context"
 	"time"
 
+	planpolicyv1alpha1 "github.com/kuadrant/kuadrant-operator/cmd/extensions/plan-policy/api/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	_ "k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -85,6 +85,8 @@ var _ = Describe("APIKey Controller", func() {
 				},
 			}
 			Expect(k8sClient.Create(ctx, apiProduct)).To(Succeed())
+			addPlansToAPIProduct(apiProduct)
+			Expect(k8sClient.Status().Update(ctx, apiProduct)).ToNot(HaveOccurred())
 
 			By("Creating the APIKey with automatic approval")
 			apiKeyNamespacedName = types.NamespacedName{
@@ -111,7 +113,7 @@ var _ = Describe("APIKey Controller", func() {
 			Expect(k8sClient.Create(ctx, apiKey)).To(Succeed())
 		})
 
-		It("should automatically approve and create Secret", func() {
+		It("should automatically approve and create Secret and display the APIProduct plan info", func() {
 			controllerReconciler := &APIKeyReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
@@ -137,6 +139,9 @@ var _ = Describe("APIKey Controller", func() {
 
 			By("Verifying reviewedBy is set to system")
 			Expect(apiKey.Status.ReviewedBy).To(Equal("system"))
+
+			By("Verifying it has the correct plan limits")
+			Expect(*apiKey.Status.Limits.Daily).To(Equal(1000))
 
 			By("Checking the Secret was created")
 			secret := &corev1.Secret{}
@@ -195,6 +200,8 @@ var _ = Describe("APIKey Controller", func() {
 				},
 			}
 			Expect(k8sClient.Create(ctx, apiProduct)).To(Succeed())
+			addPlansToAPIProduct(apiProduct)
+			Expect(k8sClient.Status().Update(ctx, apiProduct)).ToNot(HaveOccurred())
 
 			By("Creating the APIKey with manual approval")
 			apiKeyNamespacedName = types.NamespacedName{
@@ -288,6 +295,8 @@ var _ = Describe("APIKey Controller", func() {
 				},
 			}
 			Expect(k8sClient.Create(ctx, apiProduct)).To(Succeed())
+			addPlansToAPIProduct(apiProduct)
+			Expect(k8sClient.Status().Update(ctx, apiProduct)).ToNot(HaveOccurred())
 
 			By("Creating the APIKey")
 			apiKeyNamespacedName = types.NamespacedName{
@@ -411,3 +420,33 @@ var _ = Describe("APIKey Controller", func() {
 		})
 	})
 })
+
+func addPlansToAPIProduct(apiProduct *devportalv1alpha1.APIProduct) {
+	premiumLimit := 1000
+	enterpriseLimit := 100
+	basicLimit := 1
+	plans := []devportalv1alpha1.PlanSpec{
+		{
+			Tier: "premium",
+			Limits: planpolicyv1alpha1.Limits{
+				Daily: &premiumLimit,
+			},
+		},
+		{
+			Tier: "enterprise",
+			Limits: planpolicyv1alpha1.Limits{
+				Daily: &enterpriseLimit,
+			},
+		},
+		{
+			Tier: "basic",
+			Limits: planpolicyv1alpha1.Limits{
+				Daily: &basicLimit,
+			},
+		},
+	}
+
+	apiProduct.Status = devportalv1alpha1.APIProductStatus{
+		DiscoveredPlans: plans,
+	}
+}

@@ -158,6 +158,43 @@ spec:
                   - type
                   type: object
                 type: array
+              limits:
+                description: Limits contains the rate limits for the plan
+                properties:
+                  custom:
+                    description: Custom defines any additional limits defined in terms
+                      of a RateLimitPolicy Rate.
+                    items:
+                      description: Rate defines the actual rate limit that will be
+                        used when there is a match
+                      properties:
+                        limit:
+                          description: Limit defines the max value allowed for a given
+                            period of time
+                          type: integer
+                        window:
+                          description: Window defines the time period for which the
+                            Limit specified above applies.
+                          pattern: ^([0-9]{1,5}(h|m|s|ms)){1,4}$
+                          type: string
+                      required:
+                      - limit
+                      - window
+                      type: object
+                    type: array
+                  daily:
+                    description: Daily limit of requests for this plan.
+                    type: integer
+                  monthly:
+                    description: Monthly limit of requests for this plan.
+                    type: integer
+                  weekly:
+                    description: Weekly limit of requests for this plan.
+                    type: integer
+                  yearly:
+                    description: Yearly limit of requests for this plan.
+                    type: integer
+                type: object
               phase:
                 description: |-
                   Phase represents the current phase of the APIKey
@@ -167,25 +204,6 @@ spec:
                 - Approved
                 - Rejected
                 type: string
-              planLimits:
-                description: PlanLimits contains the rate limits for the plan
-                properties:
-                  requestsPerDay:
-                    description: RequestsPerDay is the number of requests allowed
-                      per day
-                    format: int64
-                    type: integer
-                  requestsPerHour:
-                    description: RequestsPerHour is the number of requests allowed
-                      per hour
-                    format: int64
-                    type: integer
-                  requestsPerMinute:
-                    description: RequestsPerMinute is the number of requests allowed
-                      per minute
-                    format: int64
-                    type: integer
-                type: object
               reviewedAt:
                 description: ReviewedAt is the timestamp when the request was reviewed
                 format: date-time
