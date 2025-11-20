@@ -20,4 +20,13 @@ resources:
   kind: APIProduct
   path: github.com/kuadrant/developer-portal-controller/api/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: kuadrant.io
+  group: devportal
+  kind: APIKey
+  path: github.com/kuadrant/developer-portal-controller/api/v1alpha1
+  version: v1alpha1
 version: "3"
