@@ -1,0 +1,74 @@
+name: Verifications
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify-manifests:
+    name: Verify manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+        id: go
+      - name: Verify manifests
+        run: make verify-manifests
+  verify-fmt:
+    name: Verify fmt
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v5
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run make verify-fmt
+        run: |
+          make verify-fmt
+  verify-tidy:
+    name: Verify tidy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v5
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run go mod tidy
+        run: |
+          go mod tidy
+      - name: Run make verify-tidy
+        run: |
+          make verify-tidy
+  verify-generate:
+    name: Verify generate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v5
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Verify generate command
+        run: |
+          make verify-generate
+  verify-go-mod:
+    name: Verify go.mod
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v5
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Verify generate command
+        run: |
+          make verify-go-mod
