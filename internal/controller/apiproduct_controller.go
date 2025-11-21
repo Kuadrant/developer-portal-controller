@@ -20,6 +20,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"slices"
 
 	"github.com/samber/lo"
@@ -41,10 +43,16 @@ import (
 	devportalv1alpha1 "github.com/kuadrant/developer-portal-controller/api/v1alpha1"
 )
 
+// HTTPClient is an interface for making HTTP requests
+type HTTPClient interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
 // APIProductReconciler reconciles a APIProduct object
 type APIProductReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme     *runtime.Scheme
+	HTTPClient HTTPClient
 }
 
 // +kubebuilder:rbac:groups=devportal.kuadrant.io,resources=apiproducts,verbs=get;list;watch;create;update;patch;delete
@@ -132,6 +140,11 @@ func (r *APIProductReconciler) calculateStatus(ctx context.Context, apiProductOb
 		Conditions: slices.Clone(apiProductObj.Status.Conditions),
 	}
 
+	if apiProductObj.Status.OpenAPI != nil {
+		// Copy initial openapi. Otherwise, content will be fetched always
+		newStatus.OpenAPI = ptr.To(*apiProductObj.Status.OpenAPI)
+	}
+
 	planPolicy, err := r.findPlanPolicyForAPIProduct(ctx, apiProductObj)
 	if err != nil {
 		return nil, err
@@ -152,6 +165,13 @@ func (r *APIProductReconciler) calculateStatus(ctx context.Context, apiProductOb
 	}
 
 	meta.SetStatusCondition(&newStatus.Conditions, *readyCond)
+
+	openAPIStatus, err := r.openAPIStatus(ctx, apiProductObj)
+	if err != nil {
+		return nil, err
+	}
+
+	newStatus.OpenAPI = openAPIStatus
 
 	return newStatus, nil
 }
@@ -277,6 +297,57 @@ func (r *APIProductReconciler) findPlanPolicyForAPIProduct(ctx context.Context, 
 	}
 
 	return nil, nil
+}
+
+func (r *APIProductReconciler) openAPIStatus(ctx context.Context, apiProductObj *devportalv1alpha1.APIProduct) (*devportalv1alpha1.OpenAPIStatus, error) {
+	logger := logf.FromContext(ctx, "apiproduct", client.ObjectKeyFromObject(apiProductObj))
+
+	// Check if OpenAPI URL is specified
+	if apiProductObj.Spec.Documentation == nil || apiProductObj.Spec.Documentation.OpenAPISpecURL == nil {
+		logger.V(1).Info("no OpenAPI URL specified, skipping fetch")
+		return nil, nil
+	}
+
+	// Only fetch if spec has changed (generation mismatch)
+	if apiProductObj.Generation == apiProductObj.Status.ObservedGeneration {
+		logger.V(1).Info("spec unchanged, returning existing OpenAPI status")
+		return apiProductObj.Status.OpenAPI, nil
+	}
+
+	// Fetch OpenAPI content
+	openAPIURL := *apiProductObj.Spec.Documentation.OpenAPISpecURL
+	logger.Info("fetching OpenAPI spec", "url", openAPIURL)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, openAPIURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create HTTP request for OpenAPI spec: %w", err)
+	}
+
+	resp, err := r.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch OpenAPI spec from %s: %w", openAPIURL, err)
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			logger.Error(closeErr, "failed to close response body")
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to fetch OpenAPI spec from %s: unexpected status code %d", openAPIURL, resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read OpenAPI spec response body: %w", err)
+	}
+
+	logger.Info("successfully fetched OpenAPI spec", "size", len(body))
+
+	return &devportalv1alpha1.OpenAPIStatus{
+		Raw:          string(body),
+		LastSyncTime: metav1.Now(),
+	}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

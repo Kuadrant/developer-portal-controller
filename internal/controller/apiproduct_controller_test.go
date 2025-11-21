@@ -17,7 +17,10 @@ limitations under the License.
 package controller
 
 import (
+	"bytes"
 	"context"
+	"io"
+	"net/http"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -34,6 +37,21 @@ import (
 
 	devportalv1alpha1 "github.com/kuadrant/developer-portal-controller/api/v1alpha1"
 )
+
+// mockHTTPClient is a mock implementation of HTTPClient for testing
+type mockHTTPClient struct {
+	DoFunc func(req *http.Request) (*http.Response, error)
+}
+
+func (m *mockHTTPClient) Do(req *http.Request) (*http.Response, error) {
+	if m.DoFunc != nil {
+		return m.DoFunc(req)
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(bytes.NewBufferString("{}")),
+	}, nil
+}
 
 var _ = Describe("APIProduct Controller", func() {
 	const (
@@ -582,6 +600,204 @@ var _ = Describe("APIProduct Controller", func() {
 			Expect(enterprisePlan.Tier).To(Equal("enterprise"))
 			Expect(enterprisePlan.Limits.Daily).NotTo(BeNil())
 			Expect(*enterprisePlan.Limits.Daily).To(Equal(100000))
+		})
+	})
+
+	Context("When APIProduct has OpenAPI spec URL", func() {
+		const (
+			apiProductName    = "test-apiproduct-openapi"
+			openAPIContent    = `{"openapi": "3.0.0", "info": {"title": "Test API", "version": "1.0.0"}}`
+			testURL           = "https://example.com/openapi.json"
+			testGatewayName   = "my-gateway-openapi"
+			testHTTPRouteName = "my-route-openapi"
+		)
+
+		ctx := context.Background()
+
+		var (
+			apiProductKey types.NamespacedName
+			apiproduct    *devportalv1alpha1.APIProduct
+		)
+
+		BeforeEach(func() {
+			apiProductKey = types.NamespacedName{
+				Name:      apiProductName,
+				Namespace: testNamespace,
+			}
+			apiproduct = &devportalv1alpha1.APIProduct{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "APIProduct",
+					APIVersion: devportalv1alpha1.GroupVersion.String(),
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      apiProductKey.Name,
+					Namespace: apiProductKey.Namespace,
+				},
+				Spec: devportalv1alpha1.APIProductSpec{
+					TargetRef: gatewayapiv1alpha2.LocalPolicyTargetReference{
+						Group: gwapiv1.GroupName,
+						Name:  testHTTPRouteName,
+						Kind:  "HTTPRoute",
+					},
+					PublishStatus: "Draft",
+					ApprovalMode:  "manual",
+					Documentation: &devportalv1alpha1.DocumentationSpec{
+						OpenAPISpecURL: ptr.To(testURL),
+					},
+				},
+			}
+
+			gateway = buildBasicGateway(testGatewayName, testNamespace)
+			Expect(k8sClient.Create(ctx, gateway)).To(Succeed())
+			route = buildBasicHttpRoute(testHTTPRouteName, testGatewayName, testNamespace, []string{"openapi.example.com"})
+			Expect(k8sClient.Create(ctx, route)).ToNot(HaveOccurred())
+			addAcceptedCondition(route)
+			Expect(k8sClient.Status().Update(ctx, route)).ToNot(HaveOccurred())
+			Expect(k8sClient.Create(ctx, apiproduct)).ToNot(HaveOccurred())
+		})
+
+		It("should fetch and populate OpenAPI status when spec changes", func() {
+			By("Reconciling with mock HTTP client")
+			mockClient := &mockHTTPClient{
+				DoFunc: func(req *http.Request) (*http.Response, error) {
+					Expect(req.URL.String()).To(Equal(testURL))
+					Expect(req.Method).To(Equal(http.MethodGet))
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Body:       io.NopCloser(bytes.NewBufferString(openAPIContent)),
+					}, nil
+				},
+			}
+
+			controllerReconciler := &APIProductReconciler{
+				Client:     k8sClient,
+				Scheme:     k8sClient.Scheme(),
+				HTTPClient: mockClient,
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			err = k8sClient.Get(ctx, apiProductKey, apiproduct)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking OpenAPI status is populated")
+			Expect(apiproduct.Status.OpenAPI).NotTo(BeNil())
+			Expect(apiproduct.Status.OpenAPI.Raw).To(Equal(openAPIContent))
+			Expect(apiproduct.Status.OpenAPI.LastSyncTime).NotTo(BeZero())
+		})
+
+		It("should not fetch OpenAPI when generation matches observedGeneration", func() {
+			By("First reconcile to populate status")
+			mockClient := &mockHTTPClient{
+				DoFunc: func(req *http.Request) (*http.Response, error) {
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Body:       io.NopCloser(bytes.NewBufferString(openAPIContent)),
+					}, nil
+				},
+			}
+
+			controllerReconciler := &APIProductReconciler{
+				Client:     k8sClient,
+				Scheme:     k8sClient.Scheme(),
+				HTTPClient: mockClient,
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			err = k8sClient.Get(ctx, apiProductKey, apiproduct)
+			Expect(err).NotTo(HaveOccurred())
+
+			firstSyncTime := apiproduct.Status.OpenAPI.LastSyncTime
+
+			By("Second reconcile should not fetch again")
+			fetchCalled := false
+			mockClient.DoFunc = func(req *http.Request) (*http.Response, error) {
+				fetchCalled = true
+				Fail("HTTP client should not be called when generation matches")
+				return nil, nil
+			}
+
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			err = k8sClient.Get(ctx, apiProductKey, apiproduct)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(fetchCalled).To(BeFalse())
+			Expect(apiproduct.Status.OpenAPI.LastSyncTime).To(Equal(firstSyncTime))
+		})
+	})
+
+	Context("When APIProduct has no OpenAPI spec URL", func() {
+		const (
+			apiProductName    = "test-apiproduct-no-openapi"
+			testGatewayName   = "my-gateway-no-openapi"
+			testHTTPRouteName = "my-route-no-openapi"
+		)
+
+		ctx := context.Background()
+
+		var (
+			apiProductKey types.NamespacedName
+			apiproduct    *devportalv1alpha1.APIProduct
+		)
+
+		BeforeEach(func() {
+			apiProductKey = types.NamespacedName{
+				Name:      apiProductName,
+				Namespace: testNamespace,
+			}
+			apiproduct = &devportalv1alpha1.APIProduct{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "APIProduct",
+					APIVersion: devportalv1alpha1.GroupVersion.String(),
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      apiProductKey.Name,
+					Namespace: apiProductKey.Namespace,
+				},
+				Spec: devportalv1alpha1.APIProductSpec{
+					TargetRef: gatewayapiv1alpha2.LocalPolicyTargetReference{
+						Group: gwapiv1.GroupName,
+						Name:  testHTTPRouteName,
+						Kind:  "HTTPRoute",
+					},
+					PublishStatus: "Draft",
+					ApprovalMode:  "manual",
+					Documentation: &devportalv1alpha1.DocumentationSpec{
+						DocsURL: ptr.To("https://example.com/docs"),
+					},
+				},
+			}
+
+			gateway = buildBasicGateway(testGatewayName, testNamespace)
+			Expect(k8sClient.Create(ctx, gateway)).To(Succeed())
+			route = buildBasicHttpRoute(testHTTPRouteName, testGatewayName, testNamespace, []string{"no-openapi.example.com"})
+			Expect(k8sClient.Create(ctx, route)).ToNot(HaveOccurred())
+			addAcceptedCondition(route)
+			Expect(k8sClient.Status().Update(ctx, route)).ToNot(HaveOccurred())
+			Expect(k8sClient.Create(ctx, apiproduct)).ToNot(HaveOccurred())
+		})
+
+		It("should not populate OpenAPI status", func() {
+			By("Reconciling the resource")
+			controllerReconciler := &APIProductReconciler{
+				Client:     k8sClient,
+				Scheme:     k8sClient.Scheme(),
+				HTTPClient: &mockHTTPClient{},
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			err = k8sClient.Get(ctx, apiProductKey, apiproduct)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking OpenAPI status is nil")
+			Expect(apiproduct.Status.OpenAPI).To(BeNil())
 		})
 	})
 })

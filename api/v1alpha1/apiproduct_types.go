@@ -109,6 +109,21 @@ type PlanSpec struct {
 	Limits planpolicyv1alpha1.Limits `json:"limits,omitempty"`
 }
 
+type OpenAPIStatus struct {
+	// raw content
+	// +required
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Type=string
+	Raw string `json:"raw"`
+
+	// lastSyncTime is the last time the raw content was updated.
+	// +required
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Format=date-time
+	LastSyncTime metav1.Time `json:"lastSyncTime" protobuf:"bytes,4,opt,name=lastSyncTime"`
+}
+
 // APIProductStatus defines the observed state of APIProduct.
 type APIProductStatus struct {
 	// ObservedGeneration reflects the generation of the most recently observed spec.
@@ -117,6 +132,10 @@ type APIProductStatus struct {
 
 	// list of planpolicies discovered from httproute
 	DiscoveredPlans []PlanSpec `json:"discoveredPlans,omitempty"`
+
+	// OpenAPI specification fetched from the API and its sync status
+	// +optional
+	OpenAPI *OpenAPIStatus `json:"openapi,omitempty"`
 
 	// Represents the observations of a foo's current state.
 	// +patchMergeKey=type
