@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	planpolicyv1alpha1 "github.com/kuadrant/kuadrant-operator/cmd/extensions/plan-policy/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -74,9 +75,9 @@ type APIKeyStatus struct {
 	// +optional
 	ReviewedAt *metav1.Time `json:"reviewedAt,omitempty"`
 
-	// PlanLimits contains the rate limits for the plan
+	// Limits contains the rate limits for the plan
 	// +optional
-	PlanLimits *PlanLimits `json:"planLimits,omitempty"`
+	Limits *planpolicyv1alpha1.Limits `json:"limits,omitempty"`
 
 	// SecretRef is a reference to the created Secret
 	// +optional
@@ -85,21 +86,6 @@ type APIKeyStatus struct {
 	// Conditions represent the latest available observations of the APIKey's state
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-}
-
-// PlanLimits defines rate limits for a plan.
-type PlanLimits struct {
-	// RequestsPerMinute is the number of requests allowed per minute
-	// +optional
-	RequestsPerMinute *int64 `json:"requestsPerMinute,omitempty"`
-
-	// RequestsPerHour is the number of requests allowed per hour
-	// +optional
-	RequestsPerHour *int64 `json:"requestsPerHour,omitempty"`
-
-	// RequestsPerDay is the number of requests allowed per day
-	// +optional
-	RequestsPerDay *int64 `json:"requestsPerDay,omitempty"`
 }
 
 // SecretReference contains a reference to a Secret.
