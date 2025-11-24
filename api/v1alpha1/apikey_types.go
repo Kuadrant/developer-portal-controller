@@ -101,7 +101,7 @@ type SecretReference struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:shortName=apik
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
-// +kubebuilder:printcolumn:name="API",type=string,JSONPath=`.spec.apiName`
+// +kubebuilder:printcolumn:name="API",type=string,JSONPath=`.spec.apiProductRef.name`
 // +kubebuilder:printcolumn:name="Plan",type=string,JSONPath=`.spec.planTier`
 // +kubebuilder:printcolumn:name="User",type=string,JSONPath=`.spec.requestedBy.userId`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
