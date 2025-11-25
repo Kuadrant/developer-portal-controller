@@ -83,6 +83,10 @@ type APIKeyStatus struct {
 	// +optional
 	SecretRef *SecretReference `json:"secretRef,omitempty"`
 
+	// CanReadSecret expresses the permission to read the APIKey's secret
+	// +kubebuilder:default=true
+	CanReadSecret bool `json:"canReadSecret,omitempty"`
+
 	// Conditions represent the latest available observations of the APIKey's state
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
