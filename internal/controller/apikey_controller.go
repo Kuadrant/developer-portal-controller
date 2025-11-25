@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"time"
 
+	planpolicyv1alpha1 "github.com/kuadrant/kuadrant-operator/cmd/extensions/plan-policy/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -38,7 +39,6 @@ import (
 )
 
 const (
-	apiKeyFinalizer                 = "devportal.kuadrant.io/apikey-finalizer"
 	apiKeySecretAnnotationPlan      = "secret.kuadrant.io/plan-id"
 	apiKeySecretAnnotationUser      = "secret.kuadrant.io/user-id"
 	apiKeySecretLabelAuthorinoKey   = "authorino.kuadrant.io/managed-by"
@@ -127,25 +127,35 @@ func (r *APIKeyReconciler) reconcilePending(ctx context.Context, apiKey *devport
 		return ctrl.Result{}, err
 	}
 
+	planLimits, err := findPlanLimits(apiProduct, apiKey.Spec.PlanTier)
+	if err != nil {
+		logger.Error(err, "Plan tier not found in APIProduct", "planTier", apiKey.Spec.PlanTier, "apiProduct", apiProduct.Name)
+		setReadyCondition(apiKey, metav1.ConditionFalse, "PlanTierNotFound", fmt.Sprintf("Plan tier %q not found in APIProduct %s", apiKey.Spec.PlanTier, apiProduct.Name))
+		if err = r.Status().Update(ctx, apiKey); err != nil {
+			return ctrl.Result{}, err
+		}
+		// Requeue in case APIProduct hasn't finished reconciling
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+
 	// Set APIProduct as the owner of the APIKey for garbage collection
-	if err := controllerutil.SetOwnerReference(apiProduct, apiKey, r.Scheme); err != nil {
+	if err = controllerutil.SetOwnerReference(apiProduct, apiKey, r.Scheme); err != nil {
 		logger.Error(err, "Failed to set owner reference on APIKey")
 		return ctrl.Result{}, err
 	}
 
 	// Update the APIKey obj
-	if err := r.Update(ctx, apiKey); err != nil {
+	if err = r.Update(ctx, apiKey); err != nil {
 		logger.Error(err, "Failed to update APIProduct after setting OwnerReference")
 		return ctrl.Result{}, err
 	}
 
-	now := metav1.Now()
-	apiKey.Status.ReviewedBy = "system"
-	apiKey.Status.ReviewedAt = &now
-
 	// Check approval mode
 	if apiProduct.Spec.ApprovalMode == apiKeyApprovalModeAutomatic {
 		// Automatically approved
+		now := metav1.Now()
+		apiKey.Status.ReviewedAt = &now
+		apiKey.Status.ReviewedBy = "system"
 		apiKey.Status.Phase = apiKeyPhaseApproved
 		setReadyCondition(apiKey, metav1.ConditionFalse, "AwaitingSecret",
 			"API key was automatically approved, waiting for Secret creation")
@@ -159,8 +169,10 @@ func (r *APIKeyReconciler) reconcilePending(ctx context.Context, apiKey *devport
 		logger.Info("APIKey is pending manual approval")
 	}
 
-	if err := r.Status().Update(ctx, apiKey); err != nil {
-		logger.Error(err, "Failed to approve APIKey")
+	apiKey.Status.Limits = planLimits
+
+	if err = r.Status().Update(ctx, apiKey); err != nil {
+		logger.Error(err, "Failed to update APIKey Status")
 		return ctrl.Result{}, err
 	}
 
@@ -319,6 +331,17 @@ func createSecret(apiKey *devportalv1alpha1.APIKey) (*corev1.Secret, error) {
 			apiKeySecretKey: generatedKey,
 		},
 	}, nil
+}
+
+// findPlanLimits finds the matching plan tier in the APIProduct []Plans to get its limits
+func findPlanLimits(apiProduct *devportalv1alpha1.APIProduct, planTier string) (*planpolicyv1alpha1.Limits, error) {
+	// Find the matching plan in discoveredPlans
+	for _, plan := range apiProduct.Status.DiscoveredPlans {
+		if plan.Tier == planTier {
+			return &plan.Limits, nil
+		}
+	}
+	return nil, fmt.Errorf("plan tier %q not found in APIProduct %s", planTier, apiProduct.Name)
 }
 
 // SetupWithManager sets up the controller with the Manager.

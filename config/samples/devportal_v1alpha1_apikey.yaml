@@ -4,13 +4,12 @@ metadata:
   labels:
     app.kubernetes.io/name: developer-portal-controller
     app.kubernetes.io/managed-by: kustomize
-  name: apikey-sample
+  name: toystore-apikey
 spec:
-  apiName: my-api-product
-  apiNamespace: default
-  planTier: premium
-  useCase: "Integration with our mobile application for user authentication and data retrieval"
+  apiProductRef:
+    name: toystore-api
+  planTier: gold
+  useCase: "Authentication key for our Toystore API"
   requestedBy:
     userId: user-12345
     email: developer@example.com
-  approvalMode: automatic
