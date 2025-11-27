@@ -100,6 +100,11 @@ spec:
               apiHostname:
                 description: APIHostname is the hostname from the HTTPRoute
                 type: string
+              canReadSecret:
+                default: true
+                description: CanReadSecret expresses the permission to read the APIKey's
+                  secret
+                type: boolean
               conditions:
                 description: Conditions represent the latest available observations
                   of the APIKey's state
