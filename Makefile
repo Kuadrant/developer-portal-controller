@@ -225,15 +225,6 @@ gateway-api-crds: ## Download Gateway API CRDs for testing
 		curl -sSL https://github.com/kubernetes-sigs/gateway-api/releases/download/$(GATEWAY_API_VERSION)/standard-install.yaml -o $(LOCALBIN)/crd/gateway-api/standard-install.yaml; \
 	fi
 
-.PHONY: kuadrant-crds
-kuadrant-crds: ## Copy Kuadrant Operator CRDs for testing
-	@mkdir -p $(LOCALBIN)/crd/kuadrant
-	@echo "Copying Kuadrant Operator CRDs..."
-	@KUADRANT_DIR=$$(go list -m -f '{{.Dir}}' github.com/kuadrant/kuadrant-operator); \
-	if [ -d "$$KUADRANT_DIR/config/crd/bases" ]; then \
-		cp $$KUADRANT_DIR/config/crd/bases/extensions.kuadrant.io_planpolicies.yaml $(LOCALBIN)/crd/kuadrant/ 2>/dev/null || true; \
-	fi
-
 ## Tool Binaries
 KUBECTL ?= kubectl
 KUSTOMIZE ?= $(LOCALBIN)/kustomize

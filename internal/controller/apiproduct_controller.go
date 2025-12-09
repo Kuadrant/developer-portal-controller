@@ -175,7 +175,9 @@ func (r *APIProductReconciler) calculateStatus(ctx context.Context, apiProductOb
 		return nil, err
 	}
 
-	newStatus.DiscoveredAuthScheme = authPolicy.Spec.AuthScheme
+	if authPolicy != nil {
+		newStatus.DiscoveredAuthScheme = authPolicy.Spec.AuthScheme
+	}
 
 	authPolicyDiscoveredCond, err := r.authPolicyDiscoveredCondition(ctx, apiProductObj)
 	if err != nil {
