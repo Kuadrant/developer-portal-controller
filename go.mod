@@ -3,6 +3,7 @@ module github.com/kuadrant/developer-portal-controller
 go 1.24.6
 
 require (
+	github.com/kuadrant/authorino v0.22.0
 	github.com/kuadrant/kuadrant-operator v1.3.0
 	github.com/onsi/ginkgo/v2 v2.22.0
 	github.com/onsi/gomega v1.36.1
@@ -48,7 +49,6 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/kuadrant/authorino v0.22.0 // indirect
 	github.com/kuadrant/dns-operator v0.0.0-20250826105007-7a0e6d88f7bb // indirect
 	github.com/kuadrant/limitador-operator v0.15.0 // indirect
 	github.com/kuadrant/policy-machinery v0.6.4 // indirect
