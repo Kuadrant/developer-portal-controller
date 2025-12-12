@@ -73,3 +73,17 @@ rules:
   - httproutes/status
   verbs:
   - get
+- apiGroups:
+  - kuadrant.io
+  resources:
+  - authpolicies
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kuadrant.io
+  resources:
+  - authpolicies/status
+  verbs:
+  - get

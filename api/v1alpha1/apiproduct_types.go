@@ -21,6 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	gatewayapiv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 
+	kuadrantapiv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	planpolicyv1alpha1 "github.com/kuadrant/kuadrant-operator/cmd/extensions/plan-policy/api/v1alpha1"
 )
 
@@ -28,6 +29,7 @@ const (
 	// Status conditions
 	StatusConditionReady                string = "Ready"
 	StatusConditionPlanPolicyDiscovered string = "PlanPolicyDiscovered"
+	StatusConditionAuthPolicyDiscovered string = "AuthPolicyDiscovered"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -143,6 +145,9 @@ type APIProductStatus struct {
 	// +listType=map
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
+
+	// Authpolicy discovered from httproute
+	DiscoveredAuthScheme *kuadrantapiv1.AuthSchemeSpec `json:"discoveredAuthScheme,omitempty"`
 }
 
 func PlanPolicyIntoPlans(plan *planpolicyv1alpha1.PlanPolicy) []PlanSpec {
