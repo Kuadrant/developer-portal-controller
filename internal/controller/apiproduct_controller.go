@@ -179,7 +179,7 @@ func (r *APIProductReconciler) calculateStatus(ctx context.Context, apiProductOb
 		newStatus.DiscoveredAuthScheme = authPolicy.Spec.AuthScheme
 	}
 
-	meta.SetStatusCondition(&newStatus.Conditions, r.authPolicyDiscoveredCondition(ctx, authPolicy))
+	meta.SetStatusCondition(&newStatus.Conditions, r.authPolicyDiscoveredCondition(authPolicy))
 
 	readyCond, err := r.readyCondition(ctx, apiProductObj)
 	if err != nil {
@@ -266,7 +266,7 @@ func (r *APIProductReconciler) planPolicyDiscoveredCondition(ctx context.Context
 	return cond, nil
 }
 
-func (r *APIProductReconciler) authPolicyDiscoveredCondition(ctx context.Context, authPolicy *kuadrantapiv1.AuthPolicy) metav1.Condition {
+func (r *APIProductReconciler) authPolicyDiscoveredCondition(authPolicy *kuadrantapiv1.AuthPolicy) metav1.Condition {
 	cond := metav1.Condition{
 		Type:   devportalv1alpha1.StatusConditionAuthPolicyDiscovered,
 		Status: metav1.ConditionTrue,
