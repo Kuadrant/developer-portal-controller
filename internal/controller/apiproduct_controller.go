@@ -459,6 +459,7 @@ func (r *APIProductReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Watches(&devportalv1alpha1.APIProduct{}, handler.EnqueueRequestsFromMapFunc(r.enqueueClass)).
 		Watches(&planpolicyv1alpha1.PlanPolicy{}, handler.EnqueueRequestsFromMapFunc(r.enqueueClass)).
+		Watches(&kuadrantapiv1.AuthPolicy{}, handler.EnqueueRequestsFromMapFunc(r.enqueueClass)).
 		Watches(&gwapiv1.HTTPRoute{}, handler.EnqueueRequestsFromMapFunc(r.enqueueClass)).
 		Named("apiproduct").
 		Complete(r)

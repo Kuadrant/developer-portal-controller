@@ -274,7 +274,7 @@ func addNotAcceptedCondition(route *gwapiv1.HTTPRoute) {
 	})
 }
 
-// TODO: ask claude
+// it's additive/update-only, not destructive
 func setAcceptedAndEnforcedConditionsToAuthPolicy(policy *kuadrantapiv1.AuthPolicy) {
 	conditions := policy.Status.Conditions
 
