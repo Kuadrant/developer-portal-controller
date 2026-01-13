@@ -7,7 +7,7 @@ require (
 	github.com/kuadrant/kuadrant-operator v1.3.0
 	github.com/onsi/ginkgo/v2 v2.22.0
 	github.com/onsi/gomega v1.36.1
-	github.com/samber/lo v1.47.0
+	github.com/samber/lo v1.52.0
 	k8s.io/api v0.33.3
 	k8s.io/apimachinery v0.33.3
 	k8s.io/client-go v0.33.3
