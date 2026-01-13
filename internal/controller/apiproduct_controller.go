@@ -38,6 +38,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
+	kuadrantapiv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	planpolicyv1alpha1 "github.com/kuadrant/kuadrant-operator/cmd/extensions/plan-policy/api/v1alpha1"
 
 	devportalv1alpha1 "github.com/kuadrant/developer-portal-controller/api/v1alpha1"
@@ -64,6 +65,8 @@ type APIProductReconciler struct {
 
 // +kubebuilder:rbac:groups=extensions.kuadrant.io,resources=planpolicies,verbs=get;list;watch
 // +kubebuilder:rbac:groups=extensions.kuadrant.io,resources=planpolicies/status,verbs=get
+// +kubebuilder:rbac:groups=kuadrant.io,resources=authpolicies,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kuadrant.io,resources=authpolicies/status,verbs=get
 
 // Reconcile handles reconciling all resources in a single call. Any resource event should enqueue the
 // same reconcile.Request containing this controller name, i.e. "apiproduct". This allows multiple resource updates to
@@ -81,6 +84,14 @@ func (r *APIProductReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (c
 	}
 
 	ctx = WithPlanPolicies(ctx, planList)
+
+	authPolicyList := &kuadrantapiv1.AuthPolicyList{}
+	err = r.List(ctx, authPolicyList)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	ctx = WithAuthPolicies(ctx, authPolicyList)
 
 	apiProductListRaw := &devportalv1alpha1.APIProductList{}
 	err = r.List(ctx, apiProductListRaw)
@@ -158,6 +169,17 @@ func (r *APIProductReconciler) calculateStatus(ctx context.Context, apiProductOb
 	}
 
 	meta.SetStatusCondition(&newStatus.Conditions, *planPolicyDiscoveredCond)
+
+	authPolicy, err := r.findAuthPolicyForAPIProduct(ctx, apiProductObj)
+	if err != nil {
+		return nil, err
+	}
+
+	if authPolicy != nil && IsAuthPolicyAcceptedAndEnforced(authPolicy) {
+		newStatus.DiscoveredAuthScheme = authPolicy.Spec.AuthScheme
+	}
+
+	meta.SetStatusCondition(&newStatus.Conditions, r.authPolicyDiscoveredCondition(authPolicy))
 
 	readyCond, err := r.readyCondition(ctx, apiProductObj)
 	if err != nil {
@@ -244,6 +266,33 @@ func (r *APIProductReconciler) planPolicyDiscoveredCondition(ctx context.Context
 	return cond, nil
 }
 
+func (r *APIProductReconciler) authPolicyDiscoveredCondition(authPolicy *kuadrantapiv1.AuthPolicy) metav1.Condition {
+	cond := metav1.Condition{
+		Type:   devportalv1alpha1.StatusConditionAuthPolicyDiscovered,
+		Status: metav1.ConditionTrue,
+		Reason: "Found",
+	}
+
+	if authPolicy == nil {
+		cond.Status = metav1.ConditionFalse
+		cond.Reason = "NotFound"
+		cond.Message = "AuthPolicy not found"
+		return cond
+	}
+
+	// Not Accepted OR Not Enforced
+	if !IsAuthPolicyAcceptedAndEnforced(authPolicy) {
+		cond.Status = metav1.ConditionFalse
+		cond.Reason = "AuthPolicyNotReady"
+		cond.Message = "AuthPolicy not accepted or not enforced"
+		return cond
+	}
+
+	cond.Message = fmt.Sprintf("Discovered AuthPolicy %s targeting %s %s", authPolicy.Name, authPolicy.Spec.TargetRef.Kind, authPolicy.Spec.TargetRef.Name)
+
+	return cond
+}
+
 func (r *APIProductReconciler) findPlanPolicyForAPIProduct(ctx context.Context, apiProductObj *devportalv1alpha1.APIProduct) (*planpolicyv1alpha1.PlanPolicy, error) {
 	route := &gwapiv1.HTTPRoute{}
 	rKey := client.ObjectKey{ // Its deployment is built after the same name and namespace
@@ -294,6 +343,61 @@ func (r *APIProductReconciler) findPlanPolicyForAPIProduct(ctx context.Context, 
 
 	if ok {
 		return &planPolicy, nil
+	}
+
+	return nil, nil
+}
+
+func (r *APIProductReconciler) findAuthPolicyForAPIProduct(ctx context.Context, apiProductObj *devportalv1alpha1.APIProduct) (*kuadrantapiv1.AuthPolicy, error) {
+	route := &gwapiv1.HTTPRoute{}
+	rKey := client.ObjectKey{ // Its deployment is built after the same name and namespace
+		Namespace: apiProductObj.Namespace,
+		Name:      string(apiProductObj.Spec.TargetRef.Name),
+	}
+	err := r.Get(ctx, rKey, route)
+	if client.IgnoreNotFound(err) != nil {
+		return nil, err
+	}
+
+	if apierrors.IsNotFound(err) {
+		return nil, nil
+	}
+
+	authPolicies := GetAuthPolicies(ctx)
+
+	if authPolicies == nil {
+		// should not happen
+		// If it does, check context content
+		return nil, errors.New("cannot read auth policies")
+	}
+
+	// Look for auth policy targeting the httproute.
+	// if not found, try targeting parents
+
+	authPolicy, ok := lo.Find(authPolicies.Items, func(p kuadrantapiv1.AuthPolicy) bool {
+		return p.Spec.TargetRef.Kind == "HTTPRoute" &&
+			p.Namespace == route.Namespace &&
+			string(p.Spec.TargetRef.Name) == route.Name
+	})
+
+	if ok {
+		return &authPolicy, nil
+	}
+
+	gatewayAuthPolicies := lo.Filter(authPolicies.Items, func(p kuadrantapiv1.AuthPolicy, _ int) bool {
+		return p.Spec.TargetRef.Kind == "Gateway"
+	})
+
+	authPolicy, ok = lo.Find(gatewayAuthPolicies, func(authPolicy kuadrantapiv1.AuthPolicy) bool {
+		return lo.ContainsBy(route.Spec.ParentRefs, func(parentRef gwapiv1.ParentReference) bool {
+			parentNamespace := ptr.Deref(parentRef.Namespace, gwapiv1.Namespace(route.Namespace))
+			return authPolicy.Spec.TargetRef.Name == parentRef.Name &&
+				authPolicy.Namespace == string(parentNamespace)
+		})
+	})
+
+	if ok {
+		return &authPolicy, nil
 	}
 
 	return nil, nil
@@ -355,6 +459,7 @@ func (r *APIProductReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Watches(&devportalv1alpha1.APIProduct{}, handler.EnqueueRequestsFromMapFunc(r.enqueueClass)).
 		Watches(&planpolicyv1alpha1.PlanPolicy{}, handler.EnqueueRequestsFromMapFunc(r.enqueueClass)).
+		Watches(&kuadrantapiv1.AuthPolicy{}, handler.EnqueueRequestsFromMapFunc(r.enqueueClass)).
 		Watches(&gwapiv1.HTTPRoute{}, handler.EnqueueRequestsFromMapFunc(r.enqueueClass)).
 		Named("apiproduct").
 		Complete(r)

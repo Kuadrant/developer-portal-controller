@@ -21,6 +21,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	apiv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	apiv1alpha1 "github.com/kuadrant/kuadrant-operator/cmd/extensions/plan-policy/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
@@ -278,6 +279,11 @@ func (in *APIProductStatus) DeepCopyInto(out *APIProductStatus) {
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
+	}
+	if in.DiscoveredAuthScheme != nil {
+		in, out := &in.DiscoveredAuthScheme, &out.DiscoveredAuthScheme
+		*out = new(apiv1.AuthSchemeSpec)
+		(*in).DeepCopyInto(*out)
 	}
 }
 
