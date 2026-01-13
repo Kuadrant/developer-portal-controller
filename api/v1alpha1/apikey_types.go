@@ -28,7 +28,8 @@ type APIProductReference struct {
 // APIKeySpec defines the desired state of APIKey.
 type APIKeySpec struct {
 	// Reference to the APIProduct this APIKey belongs to.
-	APIProductRef *APIProductReference `json:"apiProductRef"`
+	// +kubebuilder:validation:Required
+	APIProductRef APIProductReference `json:"apiProductRef"`
 
 	// PlanTier is the tier of the plan (e.g., "premium", "basic", "enterprise")
 	// +kubebuilder:validation:Required
