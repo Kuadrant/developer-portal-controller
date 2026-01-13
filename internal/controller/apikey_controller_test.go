@@ -20,6 +20,8 @@ import (
 	"context"
 	"time"
 
+	authorinov1beta3 "github.com/kuadrant/authorino/api/v1beta3"
+	kuadrantapiv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	planpolicyv1alpha1 "github.com/kuadrant/kuadrant-operator/cmd/extensions/plan-policy/api/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -43,8 +45,10 @@ var _ = Describe("APIKey Controller", func() {
 		testNamespace            string
 		apiProductNamespacedName types.NamespacedName
 		apiKeyNamespacedName     types.NamespacedName
+		httpRoute                *gwapiv1.HTTPRoute
 		apiProduct               *devportalv1alpha1.APIProduct
 		apiKey                   *devportalv1alpha1.APIKey
+		authPolicy               *kuadrantapiv1.AuthPolicy
 	)
 
 	BeforeEach(func(ctx SpecContext) {
@@ -59,11 +63,77 @@ var _ = Describe("APIKey Controller", func() {
 		const (
 			apiKeyName     = "test-apikey-auto"
 			apiProductName = "test-api-product"
+			authPolicyName = "test-authpolicy"
 		)
 
 		ctx := context.Background()
 
 		BeforeEach(func() {
+			By("Creating a common HTTP Route")
+			httpRouteNamespacedName := types.NamespacedName{
+				Name:      TestHTTPRouteName,
+				Namespace: testNamespace,
+			}
+			httpRoute = &gwapiv1.HTTPRoute{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      httpRouteNamespacedName.Name,
+					Namespace: httpRouteNamespacedName.Namespace,
+				},
+			}
+			Expect(k8sClient.Create(ctx, httpRoute)).ToNot(HaveOccurred())
+
+			By("Creating the AuthPolicy with APIKey authentication custom labels")
+			authPolicyNamespacedName := types.NamespacedName{
+				Name:      authPolicyName,
+				Namespace: testNamespace,
+			}
+			authPolicy = &kuadrantapiv1.AuthPolicy{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "AuthPolicy",
+					APIVersion: kuadrantapiv1.GroupVersion.String(),
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      authPolicyNamespacedName.Name,
+					Namespace: authPolicyNamespacedName.Namespace,
+				},
+				Spec: kuadrantapiv1.AuthPolicySpec{
+					TargetRef: gatewayapiv1alpha2.LocalPolicyTargetReferenceWithSectionName{
+						LocalPolicyTargetReference: gatewayapiv1alpha2.LocalPolicyTargetReference{
+							Group: gwapiv1.GroupName,
+							Name:  TestHTTPRouteName,
+							Kind:  "HTTPRoute",
+						},
+					},
+					AuthPolicySpecProper: kuadrantapiv1.AuthPolicySpecProper{
+						AuthScheme: &kuadrantapiv1.AuthSchemeSpec{
+							Authentication: map[string]kuadrantapiv1.MergeableAuthenticationSpec{
+								"api-key": {
+									AuthenticationSpec: authorinov1beta3.AuthenticationSpec{
+										Credentials: authorinov1beta3.Credentials{
+											AuthorizationHeader: &authorinov1beta3.Prefixed{
+												Prefix: "APIKEY",
+											},
+										},
+										AuthenticationMethodSpec: authorinov1beta3.AuthenticationMethodSpec{
+											ApiKey: &authorinov1beta3.ApiKeyAuthenticationSpec{
+												Selector: &metav1.LabelSelector{
+													MatchLabels: map[string]string{
+														"team": "backend",
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, authPolicy)).ToNot(HaveOccurred())
+			setAcceptedAndEnforcedConditionsToAuthPolicy(authPolicy)
+			Expect(k8sClient.Status().Update(ctx, authPolicy)).ToNot(HaveOccurred())
+
 			By("Creating the APIProduct")
 			apiProductNamespacedName = types.NamespacedName{
 				Name:      apiProductName,
@@ -162,6 +232,8 @@ var _ = Describe("APIKey Controller", func() {
 			By("Verifying Secret has correct label")
 			Expect(secret.Labels).To(HaveKey("app"))
 			Expect(secret.Labels["app"]).To(Equal(apiProductName))
+			Expect(secret.Labels[apiKeySecretLabelAuthorinoKey]).To(Equal("authorino"))
+			Expect(secret.Labels["team"]).To(Equal("backend"))
 		})
 	})
 

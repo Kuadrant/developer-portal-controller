@@ -23,8 +23,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/kuadrant/authorino/api/v1beta3"
 	devportalv1alpha1 "github.com/kuadrant/developer-portal-controller/api/v1alpha1"
+	kuadrantapiv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	planpolicyv1alpha1 "github.com/kuadrant/kuadrant-operator/cmd/extensions/plan-policy/api/v1alpha1"
+	"github.com/samber/lo"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -61,6 +64,8 @@ type APIKeyReconciler struct {
 // +kubebuilder:rbac:groups=devportal.kuadrant.io,resources=apikeys/finalizers,verbs=update
 // +kubebuilder:rbac:groups=devportal.kuadrant.io,resources=apiproducts,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
+
+// +kubebuilder:rbac:groups=kuadrant.io,resources=authpolicies,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -208,8 +213,28 @@ func (r *APIKeyReconciler) reconcileApproved(ctx context.Context, apiKey *devpor
 		// Secret was deleted, recreate it
 	}
 
+	// Get APIProduct
+	apiProduct, err := r.getAPIProduct(ctx, apiKey)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Load AuthPolicies to ctx
+	authPolicyList := &kuadrantapiv1.AuthPolicyList{}
+	err = r.List(ctx, authPolicyList)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	ctx = WithAuthPolicies(ctx, authPolicyList)
+
+	// Get desired AuthPolicy
+	authPolicy, err := FindAuthPolicyForAPIProduct(ctx, r.Client, apiProduct)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return ctrl.Result{}, err
+	}
+
 	// Create Secret
-	secret, err := createSecret(apiKey)
+	secret, err := createSecret(apiKey, authPolicy)
 	if err != nil {
 		logger.Error(err, "Failed to create secret")
 		return ctrl.Result{}, err
@@ -314,7 +339,28 @@ func generateAPIKey() (string, error) {
 }
 
 // createSecret creates the APIKey Secret
-func createSecret(apiKey *devportalv1alpha1.APIKey) (*corev1.Secret, error) {
+func createSecret(apiKey *devportalv1alpha1.APIKey, authPol *kuadrantapiv1.AuthPolicy) (*corev1.Secret, error) {
+	authSchemeLabels := map[string]string{}
+	if authPol != nil {
+		// map[string]kuadrantapiv1.MergeableAuthenticationSpec
+		// authentication spec
+		authSchemes := lo.FilterValues(authPol.Spec.AuthScheme.Authentication, func(k string, v kuadrantapiv1.MergeableAuthenticationSpec) bool {
+			return v.GetMethod() == v1beta3.ApiKeyAuthentication
+		})
+
+		if authSchemes != nil {
+			authSchemeLabels = authSchemes[0].ApiKey.Selector.MatchLabels // TODO: Decide the heuristics about targeting specific APIKey(s)
+		}
+	}
+
+	apiKeyLabels := lo.Assign(
+		authSchemeLabels,
+		map[string]string{
+			"app":                         apiKey.Spec.APIProductRef.Name,
+			apiKeySecretLabelAuthorinoKey: apiKeySecretLabelAuthorinoValue,
+		},
+	)
+
 	// Generate API key
 	generatedKey, err := generateAPIKey()
 	if err != nil {
@@ -329,10 +375,7 @@ func createSecret(apiKey *devportalv1alpha1.APIKey) (*corev1.Secret, error) {
 				apiKeySecretAnnotationPlan: apiKey.Spec.PlanTier,
 				apiKeySecretAnnotationUser: apiKey.Spec.RequestedBy.UserID,
 			},
-			Labels: map[string]string{
-				"app":                         apiKey.Spec.APIProductRef.Name,
-				apiKeySecretLabelAuthorinoKey: apiKeySecretLabelAuthorinoValue,
-			},
+			Labels: apiKeyLabels,
 		},
 		Type: corev1.SecretTypeOpaque,
 		StringData: map[string]string{
