@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type HTTPClient interface {
@@ -58,7 +60,12 @@ func (c *Client) FetchDiscovery(ctx context.Context, issuerURL string) (*Discove
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch discovery document: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			logger := logf.FromContext(ctx)
+			logger.Error(closeErr, "failed to close response body")
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
