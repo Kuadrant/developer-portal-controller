@@ -45,6 +45,7 @@ const (
 	apiKeySecretAnnotationUser      = "secret.kuadrant.io/user-id"
 	apiKeySecretLabelAuthorinoKey   = "authorino.kuadrant.io/managed-by"
 	apiKeySecretLabelAuthorinoValue = "authorino"
+	apiKeySecretLabelDevPortalKey   = "devportal.kuadrant.io/apiproduct"
 	apiKeySecretKey                 = "api_key"
 	apiKeyLength                    = 32 // bytes, will be base64 encoded
 	apiKeyPhaseApproved             = "Approved"
@@ -356,7 +357,7 @@ func createSecret(apiKey *devportalv1alpha1.APIKey, authPol *kuadrantapiv1.AuthP
 	apiKeyLabels := lo.Assign(
 		authSchemeLabels,
 		map[string]string{
-			"app":                         apiKey.Spec.APIProductRef.Name,
+			apiKeySecretLabelDevPortalKey: apiKey.Spec.APIProductRef.Name,
 			apiKeySecretLabelAuthorinoKey: apiKeySecretLabelAuthorinoValue,
 		},
 	)

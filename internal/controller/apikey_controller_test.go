@@ -230,8 +230,7 @@ var _ = Describe("APIKey Controller", func() {
 			Expect(secret.Annotations[apiKeySecretAnnotationPlan]).To(Equal("premium"))
 
 			By("Verifying Secret has correct label")
-			Expect(secret.Labels).To(HaveKey("app"))
-			Expect(secret.Labels["app"]).To(Equal(apiProductName))
+			Expect(secret.Labels[apiKeySecretLabelDevPortalKey]).To(Equal(apiProductName))
 			Expect(secret.Labels[apiKeySecretLabelAuthorinoKey]).To(Equal("authorino"))
 			Expect(secret.Labels["team"]).To(Equal("backend"))
 		})
