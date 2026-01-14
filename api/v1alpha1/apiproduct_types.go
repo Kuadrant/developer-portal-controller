@@ -30,6 +30,7 @@ const (
 	StatusConditionReady                string = "Ready"
 	StatusConditionPlanPolicyDiscovered string = "PlanPolicyDiscovered"
 	StatusConditionAuthPolicyDiscovered string = "AuthPolicyDiscovered"
+	StatusConditionOIDCDiscovered       string = "OIDCDiscovered"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -126,6 +127,12 @@ type OpenAPIStatus struct {
 	LastSyncTime metav1.Time `json:"lastSyncTime" protobuf:"bytes,4,opt,name=lastSyncTime"`
 }
 
+// OIDCDiscoveryStatus contains OIDC discovery information fetched from the issuer
+type OIDCDiscoveryStatus struct {
+	// TokenEndpoint is the URL where clients can obtain tokens
+	TokenEndpoint string `json:"tokenEndpoint"`
+}
+
 // APIProductStatus defines the observed state of APIProduct.
 type APIProductStatus struct {
 	// ObservedGeneration reflects the generation of the most recently observed spec.
@@ -146,8 +153,12 @@ type APIProductStatus struct {
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 
-	// Authpolicy discovered from httproute
+	// AuthPolicy discovered from httproute
 	DiscoveredAuthScheme *kuadrantapiv1.AuthSchemeSpec `json:"discoveredAuthScheme,omitempty"`
+
+	// OIDCDiscovery contains OIDC discovery information when JWT auth is configured
+	// +optional
+	OIDCDiscovery *OIDCDiscoveryStatus `json:"oidcDiscovery,omitempty"`
 }
 
 func PlanPolicyIntoPlans(plan *planpolicyv1alpha1.PlanPolicy) []PlanSpec {
