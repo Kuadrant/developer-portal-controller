@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  pull_request:
+    types:
+      - closed
+    branches:
+      - 'release-v[0-9]+.[0-9]+'
+  workflow_dispatch: {}
+
+jobs:
+  release:
+    if: github.event.pull_request.merged == true
+    name: Create release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.KUADRANT_DEV_PAT }}
+          fetch-depth: 0
+
+      - name: Get version from Makefile
+        id: get_version
+        run: |
+          VERSION=$(grep "^VERSION ?=" Makefile | sed 's/VERSION ?= //')
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "TAG=v$VERSION" >> $GITHUB_OUTPUT
+          echo "Releasing version: $VERSION (tag: v$VERSION)"
+
+      - name: Check if tag already exists
+        id: check_tag
+        run: |
+          TAG="${{ steps.get_version.outputs.TAG }}"
+          CURRENT_SHA="${{ github.sha }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            TAG_SHA=$(git rev-parse "$TAG^{}")
+            if [ "$TAG_SHA" = "$CURRENT_SHA" ]; then
+              echo "Tag $TAG already exists and points to current commit"
+              echo "exists=true" >> $GITHUB_OUTPUT
+            else
+              echo "::error::Tag $TAG already exists but points to a different commit"
+              echo "Tag SHA: $TAG_SHA"
+              echo "Current SHA: $CURRENT_SHA"
+              exit 1
+            fi
+          else
+            echo "Tag $TAG does not exist"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create and push tag
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          TAG="${{ steps.get_version.outputs.TAG }}"
+          git tag "$TAG"
+          git push origin "$TAG"
+          echo "Created and pushed tag: $TAG"
+
+      - name: Determine if prerelease
+        id: prerelease
+        run: |
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          if [[ "$VERSION" =~ -(alpha|beta|rc) ]]; then
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate release notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.get_version.outputs.TAG }}
+        run: bash ./utils/release/github-release-changelog.sh
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.get_version.outputs.TAG }}
+          tag_name: ${{ steps.get_version.outputs.TAG }}
+          body: ${{ env.releaseBody }}
+          target_commitish: ${{ github.ref_name }}
+          prerelease: ${{ steps.prerelease.outputs.prerelease }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
