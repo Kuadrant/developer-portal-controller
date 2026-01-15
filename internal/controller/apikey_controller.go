@@ -66,8 +66,6 @@ type APIKeyReconciler struct {
 // +kubebuilder:rbac:groups=devportal.kuadrant.io,resources=apiproducts,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 
-// +kubebuilder:rbac:groups=kuadrant.io,resources=authpolicies,verbs=get;list;watch
-
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 func (r *APIKeyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -219,23 +217,13 @@ func (r *APIKeyReconciler) reconcileApproved(ctx context.Context, apiKey *devpor
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-
-	// Load AuthPolicies to ctx
-	authPolicyList := &kuadrantapiv1.AuthPolicyList{}
-	err = r.List(ctx, authPolicyList)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	ctx = WithAuthPolicies(ctx, authPolicyList)
-
-	// Get desired AuthPolicy
-	authPolicy, err := FindAuthPolicyForAPIProduct(ctx, r.Client, apiProduct)
-	if err != nil && !apierrors.IsNotFound(err) {
-		return ctrl.Result{}, err
+	var authScheme *kuadrantapiv1.AuthSchemeSpec
+	if apiProduct != nil {
+		authScheme = apiProduct.Status.DiscoveredAuthScheme
 	}
 
 	// Create Secret
-	secret, err := createSecret(apiKey, authPolicy)
+	secret, err := createSecret(apiKey, authScheme)
 	if err != nil {
 		logger.Error(err, "Failed to create secret")
 		return ctrl.Result{}, err
@@ -340,17 +328,15 @@ func generateAPIKey() (string, error) {
 }
 
 // createSecret creates the APIKey Secret
-func createSecret(apiKey *devportalv1alpha1.APIKey, authPol *kuadrantapiv1.AuthPolicy) (*corev1.Secret, error) {
+func createSecret(apiKey *devportalv1alpha1.APIKey, authScheme *kuadrantapiv1.AuthSchemeSpec) (*corev1.Secret, error) {
 	authSchemeLabels := map[string]string{}
-	if authPol != nil {
-		// map[string]kuadrantapiv1.MergeableAuthenticationSpec
-		// authentication spec
-		authSchemes := lo.FilterValues(authPol.Spec.AuthScheme.Authentication, func(k string, v kuadrantapiv1.MergeableAuthenticationSpec) bool {
+	if authScheme != nil {
+		authMethods := lo.FilterValues(authScheme.Authentication, func(k string, v kuadrantapiv1.MergeableAuthenticationSpec) bool {
 			return v.GetMethod() == v1beta3.ApiKeyAuthentication
 		})
 
-		if authSchemes != nil {
-			authSchemeLabels = authSchemes[0].ApiKey.Selector.MatchLabels // TODO: Decide the heuristics about targeting specific APIKey(s)
+		if authMethods != nil {
+			authSchemeLabels = authMethods[0].ApiKey.Selector.MatchLabels // TODO: Decide the heuristics about targeting specific APIKey(s)
 		}
 	}
 
