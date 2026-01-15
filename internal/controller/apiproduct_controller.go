@@ -53,8 +53,14 @@ type HTTPClient interface {
 // APIProductReconciler reconciles a APIProduct object
 type APIProductReconciler struct {
 	client.Client
-	Scheme     *runtime.Scheme
-	HTTPClient HTTPClient
+	Scheme             *runtime.Scheme
+	HTTPClient         HTTPClient
+	OpenAPISpecMaxSize int
+}
+
+type OpenAPISpecErr struct {
+	Reason  string
+	Message string
 }
 
 // +kubebuilder:rbac:groups=devportal.kuadrant.io,resources=apiproducts,verbs=get;list;watch;create;update;patch;delete
@@ -194,9 +200,21 @@ func (r *APIProductReconciler) calculateStatus(ctx context.Context, apiProductOb
 
 	meta.SetStatusCondition(&newStatus.Conditions, *readyCond)
 
-	openAPIStatus, err := r.openAPIStatus(ctx, apiProductObj)
-	if err != nil {
-		return nil, err
+	openAPIStatus, fetchErr := r.openAPIStatus(ctx, apiProductObj)
+
+	var fetchError *OpenAPISpecErr
+	if fetchErr != nil && !errors.As(fetchErr, &fetchError) {
+		return nil, fetchErr
+	}
+
+	if apiProductObj.Spec.Documentation != nil && apiProductObj.Spec.Documentation.OpenAPISpecURL != nil {
+		openAPICond := r.openAPISpecReadyCondition(openAPIStatus, fetchError)
+		if openAPICond != nil {
+			meta.SetStatusCondition(&newStatus.Conditions, *openAPICond)
+		}
+	} else {
+		// Remove the condition if OpenAPI URL was removed
+		meta.RemoveStatusCondition(&newStatus.Conditions, devportalv1alpha1.StatusConditionOpenAPISpecReady)
 	}
 
 	newStatus.OpenAPI = openAPIStatus
@@ -299,6 +317,29 @@ func (r *APIProductReconciler) authPolicyDiscoveredCondition(authPolicy *kuadran
 	return cond
 }
 
+func (r *APIProductReconciler) openAPISpecReadyCondition(openAPISpec *devportalv1alpha1.OpenAPIStatus, fetchError *OpenAPISpecErr) *metav1.Condition {
+	// If both are nil, no OpenAPI URL was configured - don't set a condition
+	if openAPISpec == nil && fetchError == nil {
+		return nil
+	}
+
+	condition := metav1.Condition{
+		Type:    devportalv1alpha1.StatusConditionOpenAPISpecReady,
+		Status:  metav1.ConditionTrue,
+		Reason:  "SpecFetched",
+		Message: "OpenAPI spec was successfully fetched",
+	}
+	// if the raw spec is empty and there is a fetch error update the conditions accordingly
+	if openAPISpec != nil && openAPISpec.Raw == "" && fetchError != nil {
+		condition.Status = metav1.ConditionFalse
+		condition.Reason = fetchError.Reason
+		condition.Message = fetchError.Message
+		return &condition
+	}
+
+	return &condition
+}
+
 func (r *APIProductReconciler) findPlanPolicyForAPIProduct(ctx context.Context, apiProductObj *devportalv1alpha1.APIProduct) (*planpolicyv1alpha1.PlanPolicy, error) {
 	route := &gwapiv1.HTTPRoute{}
 	rKey := client.ObjectKey{ // Its deployment is built after the same name and namespace
@@ -354,6 +395,11 @@ func (r *APIProductReconciler) findPlanPolicyForAPIProduct(ctx context.Context, 
 	return nil, nil
 }
 
+// Error implements the error interface, allowing OpenAPISpecErr to be used as a standard Go error.
+func (o *OpenAPISpecErr) Error() string {
+	return o.Message
+}
+
 func (r *APIProductReconciler) openAPIStatus(ctx context.Context, apiProductObj *devportalv1alpha1.APIProduct) (*devportalv1alpha1.OpenAPIStatus, error) {
 	logger := logf.FromContext(ctx, "apiproduct", client.ObjectKeyFromObject(apiProductObj))
 
@@ -363,10 +409,21 @@ func (r *APIProductReconciler) openAPIStatus(ctx context.Context, apiProductObj 
 		return nil, nil
 	}
 
-	// Only fetch if spec has changed (generation mismatch)
-	if apiProductObj.Generation == apiProductObj.Status.ObservedGeneration {
-		logger.V(1).Info("spec unchanged, returning existing OpenAPI status")
-		return apiProductObj.Status.OpenAPI, nil
+	// Only fetch if spec has changed (generation mismatch) or env var changed
+	if apiProductObj.Status.OpenAPI != nil && apiProductObj.Generation == apiProductObj.Status.ObservedGeneration && apiProductObj.Status.OpenAPI.MaxSizeUsed == r.OpenAPISpecMaxSize {
+		// fetch already done for this generation
+		openAPICondition := meta.FindStatusCondition(apiProductObj.Status.Conditions, devportalv1alpha1.StatusConditionOpenAPISpecReady)
+		if openAPICondition != nil {
+			logger.V(1).Info("spec unchanged and env var unchanged, returning existing OpenAPI status")
+			// If the previous fetch failed, return the error to maintain the failed condition
+			if openAPICondition.Status == metav1.ConditionFalse {
+				return apiProductObj.Status.OpenAPI, &OpenAPISpecErr{
+					Reason:  openAPICondition.Reason,
+					Message: openAPICondition.Message,
+				}
+			}
+			return apiProductObj.Status.OpenAPI, nil
+		}
 	}
 
 	// Fetch OpenAPI content
@@ -387,9 +444,16 @@ func (r *APIProductReconciler) openAPIStatus(ctx context.Context, apiProductObj 
 			logger.Error(closeErr, "failed to close response body")
 		}
 	}()
-
+	// checking status code of the response and if its not ok update the status
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to fetch OpenAPI spec from %s: unexpected status code %d", openAPIURL, resp.StatusCode)
+		return &devportalv1alpha1.OpenAPIStatus{
+				Raw:          "",
+				LastSyncTime: metav1.Now(),
+				MaxSizeUsed:  r.OpenAPISpecMaxSize},
+			&OpenAPISpecErr{
+				Reason:  "FetchFailed",
+				Message: fmt.Sprintf("failed to fetch OpenAPI spec from %s: unexpected status code %d", openAPIURL, resp.StatusCode),
+			}
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -397,11 +461,28 @@ func (r *APIProductReconciler) openAPIStatus(ctx context.Context, apiProductObj 
 		return nil, fmt.Errorf("failed to read OpenAPI spec response body: %w", err)
 	}
 
-	logger.Info("successfully fetched OpenAPI spec", "size", len(body))
+	openAPISize := len(body)
+	maxSize := r.OpenAPISpecMaxSize
+
+	// check the size of the openapi spec that was fetched and if its too large update the status
+	if openAPISize > maxSize {
+		return &devportalv1alpha1.OpenAPIStatus{
+				Raw:          "",
+				LastSyncTime: metav1.Now(),
+				MaxSizeUsed:  r.OpenAPISpecMaxSize,
+			}, &OpenAPISpecErr{
+				Reason:  "SpecSizeTooLarge",
+				Message: fmt.Sprintf("OpenAPI spec exceeds size limit (%d bytes)", maxSize),
+			}
+
+	}
+
+	logger.Info("successfully fetched OpenAPI spec", "size", openAPISize)
 
 	return &devportalv1alpha1.OpenAPIStatus{
 		Raw:          string(body),
 		LastSyncTime: metav1.Now(),
+		MaxSizeUsed:  r.OpenAPISpecMaxSize,
 	}, nil
 }
 
