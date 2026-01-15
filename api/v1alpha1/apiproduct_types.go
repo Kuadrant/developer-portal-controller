@@ -31,6 +31,7 @@ const (
 	StatusConditionPlanPolicyDiscovered string = "PlanPolicyDiscovered"
 	StatusConditionAuthPolicyDiscovered string = "AuthPolicyDiscovered"
 	StatusConditionOIDCDiscovered       string = "OIDCDiscovered"
+	StatusConditionOpenAPISpecReady     string = "OpenAPISpecReady"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!

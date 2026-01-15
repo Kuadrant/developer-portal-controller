@@ -199,6 +199,12 @@ func (r *APIProductReconciler) calculateStatus(ctx context.Context, apiProductOb
 		return nil, err
 	}
 
+	openAPICond, err := r.openAPISpecReadyCondition(ctx, openAPIStatus)
+	if err != nil {
+		return nil, err
+	}
+	meta.SetStatusCondition(&newStatus.Conditions, *openAPICond)
+
 	newStatus.OpenAPI = openAPIStatus
 
 	return newStatus, nil
@@ -296,7 +302,27 @@ func (r *APIProductReconciler) authPolicyDiscoveredCondition(authPolicy *kuadran
 
 	cond.Message = fmt.Sprintf("Discovered AuthPolicy %s targeting %s %s", authPolicy.Name, authPolicy.Spec.TargetRef.Kind, authPolicy.Spec.TargetRef.Name)
 
+
 	return cond
+}
+
+
+func (r *APIProductReconciler) openAPISpecReadyCondition(ctx context.Context, openAPISpec *devportalv1alpha1.OpenAPIStatus) (*metav1.Condition, error) {
+	condition := metav1.Condition{
+		Type:    devportalv1alpha1.StatusConditionOpenAPISpecReady,
+		Status:  metav1.ConditionTrue,
+		Reason:  "SpecSizeCompatible",
+		Message: "OpenAPI spec is compatible with Kubernetes storage limit",
+	}
+
+	if openAPISpec.Raw == "" {
+		condition.Status = metav1.ConditionFalse
+		condition.Reason = "SpecSizeTooLarge"
+		condition.Message = "OpenAPI spec exceeds Kubernetes storage limit (500 KB)"
+		return &condition, nil
+	}
+
+	return &condition, nil
 }
 
 func (r *APIProductReconciler) findPlanPolicyForAPIProduct(ctx context.Context, apiProductObj *devportalv1alpha1.APIProduct) (*planpolicyv1alpha1.PlanPolicy, error) {
@@ -452,7 +478,20 @@ func (r *APIProductReconciler) openAPIStatus(ctx context.Context, apiProductObj 
 		return nil, fmt.Errorf("failed to read OpenAPI spec response body: %w", err)
 	}
 
-	logger.Info("successfully fetched OpenAPI spec", "size", len(body))
+	openAPISize := len(body)
+	maxSize := 500 * 1024
+	// maxSize := 1024
+
+	if openAPISize > maxSize {
+		logger.Info("OpenAPI Spec is too large", "maxSize", maxSize)
+
+		return &devportalv1alpha1.OpenAPIStatus{
+			Raw:          "",
+			LastSyncTime: metav1.Now(),
+		}, nil
+
+	}
+	logger.Info("successfully fetched OpenAPI spec", "size", openAPISize)
 
 	return &devportalv1alpha1.OpenAPIStatus{
 		Raw:          string(body),
