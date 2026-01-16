@@ -42,6 +42,7 @@ import (
 	planpolicyv1alpha1 "github.com/kuadrant/kuadrant-operator/cmd/extensions/plan-policy/api/v1alpha1"
 
 	devportalv1alpha1 "github.com/kuadrant/developer-portal-controller/api/v1alpha1"
+	"github.com/kuadrant/developer-portal-controller/internal/oidc"
 )
 
 // HTTPClient is an interface for making HTTP requests
@@ -180,6 +181,11 @@ func (r *APIProductReconciler) calculateStatus(ctx context.Context, apiProductOb
 	}
 
 	meta.SetStatusCondition(&newStatus.Conditions, r.authPolicyDiscoveredCondition(authPolicy))
+
+	// Fetch OIDC discovery if JWT auth is configured
+	oidcStatus, oidcErr := r.oidcDiscoveryStatus(ctx, apiProductObj, newStatus.DiscoveredAuthScheme)
+	newStatus.OIDCDiscovery = oidcStatus
+	meta.SetStatusCondition(&newStatus.Conditions, r.oidcDiscoveredCondition(newStatus.DiscoveredAuthScheme, oidcErr))
 
 	readyCond, err := r.readyCondition(ctx, apiProductObj)
 	if err != nil {
@@ -452,6 +458,72 @@ func (r *APIProductReconciler) openAPIStatus(ctx context.Context, apiProductObj 
 		Raw:          string(body),
 		LastSyncTime: metav1.Now(),
 	}, nil
+}
+
+// extractIssuerURLFromAuthScheme finds the first JWT issuer URL in the auth scheme.
+func extractIssuerURLFromAuthScheme(authScheme *kuadrantapiv1.AuthSchemeSpec) string {
+	if authScheme == nil || authScheme.Authentication == nil {
+		return ""
+	}
+	for _, auth := range authScheme.Authentication {
+		if auth.Jwt != nil && auth.Jwt.IssuerUrl != "" {
+			return auth.Jwt.IssuerUrl
+		}
+	}
+	return ""
+}
+
+func (r *APIProductReconciler) oidcDiscoveryStatus(ctx context.Context, apiProductObj *devportalv1alpha1.APIProduct, authScheme *kuadrantapiv1.AuthSchemeSpec) (*devportalv1alpha1.OIDCDiscoveryStatus, error) {
+	issuerURL := extractIssuerURLFromAuthScheme(authScheme)
+
+	if issuerURL == "" {
+		// No current auth scheme - preserve existing discovery if we have one
+		// This handles the case where authPolicy is temporarily not-ready
+		return apiProductObj.Status.OIDCDiscovery, nil
+	}
+
+	// Check if issuer hasn't changed by comparing with previous discoveredAuthScheme
+	existingIssuer := extractIssuerURLFromAuthScheme(apiProductObj.Status.DiscoveredAuthScheme)
+	if apiProductObj.Status.OIDCDiscovery != nil && existingIssuer == issuerURL {
+		return apiProductObj.Status.OIDCDiscovery, nil
+	}
+
+	oidcClient := oidc.NewClientWithHTTPClient(r.HTTPClient)
+	doc, err := oidcClient.FetchDiscovery(ctx, issuerURL)
+	if err != nil {
+		return nil, err
+	}
+
+	return &devportalv1alpha1.OIDCDiscoveryStatus{
+		TokenEndpoint: doc.TokenEndpoint,
+	}, nil
+}
+
+func (r *APIProductReconciler) oidcDiscoveredCondition(authScheme *kuadrantapiv1.AuthSchemeSpec, fetchErr error) metav1.Condition {
+	cond := metav1.Condition{
+		Type: devportalv1alpha1.StatusConditionOIDCDiscovered,
+	}
+
+	issuerURL := extractIssuerURLFromAuthScheme(authScheme)
+
+	if issuerURL == "" {
+		cond.Status = metav1.ConditionFalse
+		cond.Reason = "NoOIDCAuth"
+		cond.Message = "No JWT/OIDC authentication configured in AuthPolicy"
+		return cond
+	}
+
+	if fetchErr != nil {
+		cond.Status = metav1.ConditionFalse
+		cond.Reason = "DiscoveryFailed"
+		cond.Message = fmt.Sprintf("Failed to fetch OIDC discovery from %s: %v", issuerURL, fetchErr)
+		return cond
+	}
+
+	cond.Status = metav1.ConditionTrue
+	cond.Reason = "Discovered"
+	cond.Message = fmt.Sprintf("OIDC discovery fetched from %s", issuerURL)
+	return cond
 }
 
 // SetupWithManager sets up the controller with the Manager.
