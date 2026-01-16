@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	goruntime "runtime"
+	"strconv"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -243,10 +244,22 @@ func main() {
 		},
 	}
 
+	// Read OpenAPI spec max size from environment variable, default to 500 KB
+	openAPIMaxSize := 500 * 1024
+	if envMaxSize := os.Getenv("OPENAPI_SPEC_MAX_SIZE"); envMaxSize != "" {
+		if parsed, err := strconv.Atoi(envMaxSize); err == nil && parsed > 0 {
+			openAPIMaxSize = parsed
+			setupLog.Info("using custom OpenAPI spec max size", "size", openAPIMaxSize)
+		} else {
+			setupLog.Error(err, "invalid OPENAPI_SPEC_MAX_SIZE env var, using default", "defaultSize", openAPIMaxSize)
+		}
+	}
+
 	if err := (&controller.APIProductReconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		HTTPClient: c,
+		Client:             mgr.GetClient(),
+		Scheme:             mgr.GetScheme(),
+		HTTPClient:         c,
+		OpenAPISpecMaxSize: openAPIMaxSize,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "APIProduct")
 		os.Exit(1)

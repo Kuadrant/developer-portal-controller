@@ -65,6 +65,9 @@ spec:
           - --health-probe-bind-address=:8081
         image: controller:latest
         name: manager
+        env:
+        - name: OPENAPI_SPEC_MAX_SIZE
+          value: "512000"  
         ports: []
         securityContext:
           allowPrivilegeEscalation: false
