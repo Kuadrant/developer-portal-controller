@@ -152,8 +152,9 @@ var _ = Describe("APIProduct Controller: AuthPolicy Discovery", func() {
 		It("should discover auth scheme from route-targeted authpolicy", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &APIProductReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				Client:             k8sClient,
+				Scheme:             k8sClient.Scheme(),
+				OpenAPISpecMaxSize: 500 * 1024,
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
@@ -297,8 +298,9 @@ var _ = Describe("APIProduct Controller: AuthPolicy Discovery", func() {
 		It("should discover auth scheme from gateway-targeted authpolicy", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &APIProductReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				Client:             k8sClient,
+				Scheme:             k8sClient.Scheme(),
+				OpenAPISpecMaxSize: 500 * 1024,
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
@@ -396,8 +398,9 @@ var _ = Describe("APIProduct Controller: AuthPolicy Discovery", func() {
 		It("should indicate httproute is ready but no authpolicy found", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &APIProductReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				Client:             k8sClient,
+				Scheme:             k8sClient.Scheme(),
+				OpenAPISpecMaxSize: 500 * 1024,
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
@@ -523,8 +526,9 @@ var _ = Describe("APIProduct Controller: AuthPolicy Discovery", func() {
 		It("should not discover auth scheme", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &APIProductReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				Client:             k8sClient,
+				Scheme:             k8sClient.Scheme(),
+				OpenAPISpecMaxSize: 500 * 1024,
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
