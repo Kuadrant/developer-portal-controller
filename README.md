@@ -46,42 +46,74 @@ spec:
     slack: "#api-support"
     url: "https://example.com/support"
 status:
-  observedGeneration: 1
-  discoveredPlans:
-    - tier: gold
-      limits:
-        custom:
-          - limit: 10000
-            window: "3600s"
-    - tier: silver
-      limits:
-        daily: 1000
-        weekly: 7000
-        monthly: 10000
-    - tier: bronze
-      limits:
-        daily: 100
-        weekly: 700
-        monthly: 1000
-  openapi:
-    raw: |
-      openapi: 3.0.0
-      info:
-        title: Toystore API
-        version: 1.0.0
-      ...
-    lastSyncTime: "2025-12-09T10:00:00Z"
   conditions:
-    - type: Ready
-      status: "True"
-      reason: APIProductReady
-      message: APIProduct is ready
-      lastTransitionTime: "2025-12-09T10:00:00Z"
-    - type: PlanPolicyDiscovered
-      status: "True"
-      reason: PlanPolicyFound
-      message: Successfully discovered plan policies from HTTPRoute
-      lastTransitionTime: "2025-12-09T10:00:00Z"
+  - lastTransitionTime: "2026-01-14T17:02:07Z"
+    message: Discovered PlanPolicy toystore-plans targeting HTTPRoute toystore
+    reason: Found
+    status: "True"
+    type: PlanPolicyDiscovered
+  - lastTransitionTime: "2026-01-14T17:02:08Z"
+    message: Discovered AuthPolicy toystore targeting HTTPRoute toystore
+    reason: Found
+    status: "True"
+    type: AuthPolicyDiscovered
+  - lastTransitionTime: "2026-01-14T17:02:07Z"
+    message: HTTPRoute toystore/toystore accepted
+    reason: HTTPRouteAccepted
+    status: "True"
+    type: Ready
+  discoveredAuthScheme:
+    authentication:
+      api-key-users:
+        apiKey:
+          allNamespaces: true
+          selector:
+            matchLabels:
+              app: toystore
+        credentials:
+          authorizationHeader:
+            prefix: APIKEY
+        metrics: false
+        priority: 0
+  discoveredPlans:
+  - limits:
+      daily: 100
+    tier: gold
+  - limits:
+      daily: 50
+    tier: silver
+  - limits:
+      daily: 10
+    tier: bronze
+  observedGeneration: 1
+  openapi:
+    lastSyncTime: "2026-01-14T17:02:07Z"
+    raw: |
+      ---
+      openapi: "3.0.2"
+      info:
+        title: "Pet Store API"
+        version: "1.0.0"
+      servers:
+        - url: https://toplevel.example.io/v1
+      paths:
+        /cat:
+          get:
+            operationId: "getCat"
+            responses:
+              405:
+                description: "invalid input"
+          post:
+            operationId: "postCat"
+            responses:
+              405:
+                description: "invalid input"
+        /dog:
+          get:
+            operationId: "getDog"
+            responses:
+              405:
+                description: "invalid input"
 ```
 
 #### APIProduct Spec Fields
