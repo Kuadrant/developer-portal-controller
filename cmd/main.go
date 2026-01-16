@@ -251,7 +251,7 @@ func main() {
 			openAPIMaxSize = parsed
 			setupLog.Info("using custom OpenAPI spec max size", "size", openAPIMaxSize)
 		} else {
-			setupLog.Error(err, "invalid OPENAPI_SPEC_MAX_SIZE env var, using default", openAPIMaxSize)
+			setupLog.Error(err, "invalid OPENAPI_SPEC_MAX_SIZE env var, using default", "defaultSize", openAPIMaxSize)
 		}
 	}
 

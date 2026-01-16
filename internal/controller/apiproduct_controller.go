@@ -207,9 +207,15 @@ func (r *APIProductReconciler) calculateStatus(ctx context.Context, apiProductOb
 		return nil, fetchErr
 	}
 
-	openAPICond := r.openAPISpecReadyCondition(openAPIStatus, fetchError)
-
-	meta.SetStatusCondition(&newStatus.Conditions, *openAPICond)
+	if apiProductObj.Spec.Documentation != nil && apiProductObj.Spec.Documentation.OpenAPISpecURL != nil {
+		openAPICond := r.openAPISpecReadyCondition(openAPIStatus, fetchError)
+		if openAPICond != nil {
+			meta.SetStatusCondition(&newStatus.Conditions, *openAPICond)
+		}
+	} else {
+		// Remove the condition if OpenAPI URL was removed
+		meta.RemoveStatusCondition(&newStatus.Conditions, devportalv1alpha1.StatusConditionOpenAPISpecReady)
+	}
 
 	newStatus.OpenAPI = openAPIStatus
 
@@ -312,6 +318,10 @@ func (r *APIProductReconciler) authPolicyDiscoveredCondition(authPolicy *kuadran
 }
 
 func (r *APIProductReconciler) openAPISpecReadyCondition(openAPISpec *devportalv1alpha1.OpenAPIStatus, fetchError *OpenAPISpecErr) *metav1.Condition {
+	// If both are nil, no OpenAPI URL was configured - don't set a condition
+	if openAPISpec == nil && fetchError == nil {
+		return nil
+	}
 
 	condition := metav1.Condition{
 		Type:    devportalv1alpha1.StatusConditionOpenAPISpecReady,
@@ -497,7 +507,7 @@ func (r *APIProductReconciler) openAPIStatus(ctx context.Context, apiProductObj 
 	openAPISize := len(body)
 	maxSize := r.OpenAPISpecMaxSize
 
-	// check the size of the openapi spec that was fetched and if its to large update the status
+	// check the size of the openapi spec that was fetched and if its too large update the status
 	if openAPISize > maxSize {
 		return &devportalv1alpha1.OpenAPIStatus{
 				Raw:          "",
