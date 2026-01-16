@@ -53,8 +53,9 @@ type HTTPClient interface {
 // APIProductReconciler reconciles a APIProduct object
 type APIProductReconciler struct {
 	client.Client
-	Scheme     *runtime.Scheme
-	HTTPClient HTTPClient
+	Scheme             *runtime.Scheme
+	HTTPClient         HTTPClient
+	OpenAPISpecMaxSize int
 }
 
 type OpenAPISpecErr struct {
@@ -206,10 +207,8 @@ func (r *APIProductReconciler) calculateStatus(ctx context.Context, apiProductOb
 		return nil, fetchErr
 	}
 
-	openAPICond, err := r.openAPISpecReadyCondition(openAPIStatus, fetchError)
-	if err != nil {
-		return nil, err
-	}
+	openAPICond := r.openAPISpecReadyCondition(openAPIStatus, fetchError)
+
 	meta.SetStatusCondition(&newStatus.Conditions, *openAPICond)
 
 	newStatus.OpenAPI = openAPIStatus
@@ -312,7 +311,7 @@ func (r *APIProductReconciler) authPolicyDiscoveredCondition(authPolicy *kuadran
 	return cond
 }
 
-func (r *APIProductReconciler) openAPISpecReadyCondition(openAPISpec *devportalv1alpha1.OpenAPIStatus, fetchError *OpenAPISpecErr) (*metav1.Condition) {
+func (r *APIProductReconciler) openAPISpecReadyCondition(openAPISpec *devportalv1alpha1.OpenAPIStatus, fetchError *OpenAPISpecErr) *metav1.Condition {
 
 	condition := metav1.Condition{
 		Type:    devportalv1alpha1.StatusConditionOpenAPISpecReady,
@@ -496,7 +495,7 @@ func (r *APIProductReconciler) openAPIStatus(ctx context.Context, apiProductObj 
 	}
 
 	openAPISize := len(body)
-	maxSize := 500 * 1024
+	maxSize := r.OpenAPISpecMaxSize
 
 	// check the size of the openapi spec that was fetched and if its to large update the status
 	if openAPISize > maxSize {
@@ -505,7 +504,7 @@ func (r *APIProductReconciler) openAPIStatus(ctx context.Context, apiProductObj 
 				LastSyncTime: metav1.Now(),
 			}, &OpenAPISpecErr{
 				Reason:  "SpecSizeTooLarge",
-				Message: "OpenAPI spec exceeds Kubernetes storage limit (500 KB)",
+				Message: fmt.Sprintf("OpenAPI spec exceeds size limit (%d bytes)", maxSize),
 			}
 
 	}
