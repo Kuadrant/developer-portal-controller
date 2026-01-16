@@ -57,6 +57,11 @@ type APIProductReconciler struct {
 	HTTPClient HTTPClient
 }
 
+type OpenAPISpecErr struct {
+	Reason  string
+	Message string
+}
+
 // +kubebuilder:rbac:groups=devportal.kuadrant.io,resources=apiproducts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=devportal.kuadrant.io,resources=apiproducts/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=devportal.kuadrant.io,resources=apiproducts/finalizers,verbs=update
@@ -194,12 +199,14 @@ func (r *APIProductReconciler) calculateStatus(ctx context.Context, apiProductOb
 
 	meta.SetStatusCondition(&newStatus.Conditions, *readyCond)
 
-	openAPIStatus, err := r.openAPIStatus(ctx, apiProductObj)
-	if err != nil {
-		return nil, err
+	openAPIStatus, fetchErr := r.openAPIStatus(ctx, apiProductObj)
+
+	var fetchError *OpenAPISpecErr
+	if fetchErr != nil && !errors.As(fetchErr, &fetchError) {
+		return nil, fetchErr
 	}
 
-	openAPICond, err := r.openAPISpecReadyCondition(ctx, openAPIStatus)
+	openAPICond, err := r.openAPISpecReadyCondition(openAPIStatus, fetchError)
 	if err != nil {
 		return nil, err
 	}
@@ -302,27 +309,26 @@ func (r *APIProductReconciler) authPolicyDiscoveredCondition(authPolicy *kuadran
 
 	cond.Message = fmt.Sprintf("Discovered AuthPolicy %s targeting %s %s", authPolicy.Name, authPolicy.Spec.TargetRef.Kind, authPolicy.Spec.TargetRef.Name)
 
-
 	return cond
 }
 
+func (r *APIProductReconciler) openAPISpecReadyCondition(openAPISpec *devportalv1alpha1.OpenAPIStatus, fetchError *OpenAPISpecErr) (*metav1.Condition) {
 
-func (r *APIProductReconciler) openAPISpecReadyCondition(ctx context.Context, openAPISpec *devportalv1alpha1.OpenAPIStatus) (*metav1.Condition, error) {
 	condition := metav1.Condition{
 		Type:    devportalv1alpha1.StatusConditionOpenAPISpecReady,
 		Status:  metav1.ConditionTrue,
-		Reason:  "SpecSizeCompatible",
-		Message: "OpenAPI spec is compatible with Kubernetes storage limit",
+		Reason:  "SpecFetched",
+		Message: "OpenAPI spec was successfully fetched",
 	}
-
-	if openAPISpec.Raw == "" {
+	// if the raw spec is empty and there is a fetch error update the conditions accordingly
+	if openAPISpec != nil && openAPISpec.Raw == "" && fetchError != nil {
 		condition.Status = metav1.ConditionFalse
-		condition.Reason = "SpecSizeTooLarge"
-		condition.Message = "OpenAPI spec exceeds Kubernetes storage limit (500 KB)"
-		return &condition, nil
+		condition.Reason = fetchError.Reason
+		condition.Message = fetchError.Message
+		return &condition
 	}
 
-	return &condition, nil
+	return &condition
 }
 
 func (r *APIProductReconciler) findPlanPolicyForAPIProduct(ctx context.Context, apiProductObj *devportalv1alpha1.APIProduct) (*planpolicyv1alpha1.PlanPolicy, error) {
@@ -435,6 +441,11 @@ func (r *APIProductReconciler) findAuthPolicyForAPIProduct(ctx context.Context, 
 	return nil, nil
 }
 
+// Error implements the error interface, allowing OpenAPISpecErr to be used as a standard Go error.
+func (o *OpenAPISpecErr) Error() string {
+	return o.Message
+}
+
 func (r *APIProductReconciler) openAPIStatus(ctx context.Context, apiProductObj *devportalv1alpha1.APIProduct) (*devportalv1alpha1.OpenAPIStatus, error) {
 	logger := logf.FromContext(ctx, "apiproduct", client.ObjectKeyFromObject(apiProductObj))
 
@@ -445,7 +456,7 @@ func (r *APIProductReconciler) openAPIStatus(ctx context.Context, apiProductObj 
 	}
 
 	// Only fetch if spec has changed (generation mismatch)
-	if apiProductObj.Generation == apiProductObj.Status.ObservedGeneration {
+	if apiProductObj.Generation == apiProductObj.Status.ObservedGeneration && apiProductObj.Status.OpenAPI != nil && apiProductObj.Status.OpenAPI.Raw != "" {
 		logger.V(1).Info("spec unchanged, returning existing OpenAPI status")
 		return apiProductObj.Status.OpenAPI, nil
 	}
@@ -468,9 +479,15 @@ func (r *APIProductReconciler) openAPIStatus(ctx context.Context, apiProductObj 
 			logger.Error(closeErr, "failed to close response body")
 		}
 	}()
-
+	// checking status code of the response and if its not ok update the status
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to fetch OpenAPI spec from %s: unexpected status code %d", openAPIURL, resp.StatusCode)
+		return &devportalv1alpha1.OpenAPIStatus{
+				Raw:          "",
+				LastSyncTime: metav1.Now()},
+			&OpenAPISpecErr{
+				Reason:  "FetchFailed",
+				Message: fmt.Sprintf("failed to fetch OpenAPI spec from %s: unexpected status code %d", openAPIURL, resp.StatusCode),
+			}
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -480,17 +497,19 @@ func (r *APIProductReconciler) openAPIStatus(ctx context.Context, apiProductObj 
 
 	openAPISize := len(body)
 	maxSize := 500 * 1024
-	// maxSize := 1024
 
+	// check the size of the openapi spec that was fetched and if its to large update the status
 	if openAPISize > maxSize {
-		logger.Info("OpenAPI Spec is too large", "maxSize", maxSize)
-
 		return &devportalv1alpha1.OpenAPIStatus{
-			Raw:          "",
-			LastSyncTime: metav1.Now(),
-		}, nil
+				Raw:          "",
+				LastSyncTime: metav1.Now(),
+			}, &OpenAPISpecErr{
+				Reason:  "SpecSizeTooLarge",
+				Message: "OpenAPI spec exceeds Kubernetes storage limit (500 KB)",
+			}
 
 	}
+
 	logger.Info("successfully fetched OpenAPI spec", "size", openAPISize)
 
 	return &devportalv1alpha1.OpenAPIStatus{
