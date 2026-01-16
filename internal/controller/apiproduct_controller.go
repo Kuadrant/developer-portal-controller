@@ -171,7 +171,7 @@ func (r *APIProductReconciler) calculateStatus(ctx context.Context, apiProductOb
 
 	meta.SetStatusCondition(&newStatus.Conditions, *planPolicyDiscoveredCond)
 
-	authPolicy, err := r.findAuthPolicyForAPIProduct(ctx, apiProductObj)
+	authPolicy, err := FindAuthPolicyForAPIProduct(ctx, r.Client, apiProductObj)
 	if err != nil {
 		return nil, err
 	}
@@ -349,61 +349,6 @@ func (r *APIProductReconciler) findPlanPolicyForAPIProduct(ctx context.Context, 
 
 	if ok {
 		return &planPolicy, nil
-	}
-
-	return nil, nil
-}
-
-func (r *APIProductReconciler) findAuthPolicyForAPIProduct(ctx context.Context, apiProductObj *devportalv1alpha1.APIProduct) (*kuadrantapiv1.AuthPolicy, error) {
-	route := &gwapiv1.HTTPRoute{}
-	rKey := client.ObjectKey{ // Its deployment is built after the same name and namespace
-		Namespace: apiProductObj.Namespace,
-		Name:      string(apiProductObj.Spec.TargetRef.Name),
-	}
-	err := r.Get(ctx, rKey, route)
-	if client.IgnoreNotFound(err) != nil {
-		return nil, err
-	}
-
-	if apierrors.IsNotFound(err) {
-		return nil, nil
-	}
-
-	authPolicies := GetAuthPolicies(ctx)
-
-	if authPolicies == nil {
-		// should not happen
-		// If it does, check context content
-		return nil, errors.New("cannot read auth policies")
-	}
-
-	// Look for auth policy targeting the httproute.
-	// if not found, try targeting parents
-
-	authPolicy, ok := lo.Find(authPolicies.Items, func(p kuadrantapiv1.AuthPolicy) bool {
-		return p.Spec.TargetRef.Kind == "HTTPRoute" &&
-			p.Namespace == route.Namespace &&
-			string(p.Spec.TargetRef.Name) == route.Name
-	})
-
-	if ok {
-		return &authPolicy, nil
-	}
-
-	gatewayAuthPolicies := lo.Filter(authPolicies.Items, func(p kuadrantapiv1.AuthPolicy, _ int) bool {
-		return p.Spec.TargetRef.Kind == "Gateway"
-	})
-
-	authPolicy, ok = lo.Find(gatewayAuthPolicies, func(authPolicy kuadrantapiv1.AuthPolicy) bool {
-		return lo.ContainsBy(route.Spec.ParentRefs, func(parentRef gwapiv1.ParentReference) bool {
-			parentNamespace := ptr.Deref(parentRef.Namespace, gwapiv1.Namespace(route.Namespace))
-			return authPolicy.Spec.TargetRef.Name == parentRef.Name &&
-				authPolicy.Namespace == string(parentNamespace)
-		})
-	})
-
-	if ok {
-		return &authPolicy, nil
 	}
 
 	return nil, nil

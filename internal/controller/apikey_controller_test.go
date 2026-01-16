@@ -20,6 +20,8 @@ import (
 	"context"
 	"time"
 
+	authorinov1beta3 "github.com/kuadrant/authorino/api/v1beta3"
+	kuadrantapiv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	planpolicyv1alpha1 "github.com/kuadrant/kuadrant-operator/cmd/extensions/plan-policy/api/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -86,6 +88,7 @@ var _ = Describe("APIKey Controller", func() {
 			}
 			Expect(k8sClient.Create(ctx, apiProduct)).To(Succeed())
 			addPlansToAPIProduct(apiProduct)
+			addAuthSchemeToAPIProduct(apiProduct)
 			Expect(k8sClient.Status().Update(ctx, apiProduct)).ToNot(HaveOccurred())
 
 			By("Creating the APIKey with automatic approval")
@@ -160,8 +163,9 @@ var _ = Describe("APIKey Controller", func() {
 			Expect(secret.Annotations[apiKeySecretAnnotationPlan]).To(Equal("premium"))
 
 			By("Verifying Secret has correct label")
-			Expect(secret.Labels).To(HaveKey("app"))
-			Expect(secret.Labels["app"]).To(Equal(apiProductName))
+			Expect(secret.Labels[apiKeySecretLabelDevPortalKey]).To(Equal(apiProductName))
+			Expect(secret.Labels[apiKeySecretLabelAuthorinoKey]).To(Equal("authorino"))
+			Expect(secret.Labels["team"]).To(Equal("backend"))
 		})
 	})
 
@@ -446,7 +450,30 @@ func addPlansToAPIProduct(apiProduct *devportalv1alpha1.APIProduct) {
 		},
 	}
 
-	apiProduct.Status = devportalv1alpha1.APIProductStatus{
-		DiscoveredPlans: plans,
+	apiProduct.Status.DiscoveredPlans = plans
+}
+
+func addAuthSchemeToAPIProduct(apiProduct *devportalv1alpha1.APIProduct) {
+	apiProduct.Status.DiscoveredAuthScheme = &kuadrantapiv1.AuthSchemeSpec{
+		Authentication: map[string]kuadrantapiv1.MergeableAuthenticationSpec{
+			"api-key": {
+				AuthenticationSpec: authorinov1beta3.AuthenticationSpec{
+					Credentials: authorinov1beta3.Credentials{
+						AuthorizationHeader: &authorinov1beta3.Prefixed{
+							Prefix: "APIKEY",
+						},
+					},
+					AuthenticationMethodSpec: authorinov1beta3.AuthenticationMethodSpec{
+						ApiKey: &authorinov1beta3.ApiKeyAuthenticationSpec{
+							Selector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"team": "backend",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 }
