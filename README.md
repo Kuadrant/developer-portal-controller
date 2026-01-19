@@ -2,6 +2,8 @@
 
 Developer Portal APIs and Controllers for Kubernetes-based API management.
 
+This is only about testing patch releasing
+
 ## Overview
 
 The Developer Portal Controller provides Kubernetes Custom Resource Definitions (CRDs) for managing API products and API keys in a developer portal ecosystem. It integrates with Kuadrant and Gateway API to provide a complete API lifecycle management solution.
