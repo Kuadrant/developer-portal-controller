@@ -217,13 +217,24 @@ func (r *APIKeyReconciler) reconcileApproved(ctx context.Context, apiKey *devpor
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	var authScheme *kuadrantapiv1.AuthSchemeSpec
+	var authSchemeSpec *kuadrantapiv1.AuthSchemeSpec
 	if apiProduct != nil {
-		authScheme = apiProduct.Status.DiscoveredAuthScheme
+		authSchemeSpec = apiProduct.Status.DiscoveredAuthScheme
+	}
+
+	apiKeyAuthScheme, err := getAPIKeyAuthScheme(authSchemeSpec)
+	if err != nil {
+		logger.Error(err, "Failed to get the APIKey AuthScheme")
+		// TODO: Decide if this should bubble up the error
+	}
+
+	var matchLabels map[string]string
+	if apiKeyAuthScheme != nil {
+		matchLabels = apiKeyAuthScheme.AuthenticationSpec.Selector.MatchLabels
 	}
 
 	// Create Secret
-	secret, err := createSecret(apiKey, authScheme)
+	secret, err := createSecret(apiKey, matchLabels)
 	if err != nil {
 		logger.Error(err, "Failed to create secret")
 		return ctrl.Result{}, err
@@ -257,6 +268,9 @@ func (r *APIKeyReconciler) reconcileApproved(ctx context.Context, apiKey *devpor
 		Key:  apiKeySecretKey,
 	}
 
+	// Update status with APIKey AuthScheme
+	apiKey.Status.AuthScheme = apiKeyAuthScheme
+
 	setReadyCondition(apiKey, metav1.ConditionTrue, "SecretCreated",
 		"API key secret has been created successfully")
 
@@ -266,6 +280,22 @@ func (r *APIKeyReconciler) reconcileApproved(ctx context.Context, apiKey *devpor
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func getAPIKeyAuthScheme(authSchemeSpec *kuadrantapiv1.AuthSchemeSpec) (*devportalv1alpha1.AuthScheme, error) {
+	if authSchemeSpec != nil {
+		apiKeyAuthMethods := lo.FilterValues(authSchemeSpec.Authentication, func(k string, v kuadrantapiv1.MergeableAuthenticationSpec) bool {
+			return v.GetMethod() == v1beta3.ApiKeyAuthentication
+		})
+
+		if len(apiKeyAuthMethods) > 0 {
+			return &devportalv1alpha1.AuthScheme{
+				AuthenticationSpec: apiKeyAuthMethods[0].ApiKey, // TODO: Decide the heuristics about targeting specific APIKey(s), picking the first one for now.
+				Credentials:        &apiKeyAuthMethods[0].Credentials,
+			}, nil
+		}
+	}
+	return nil, fmt.Errorf("failed to find APIKey auth methods in auth scheme spec: %+v", authSchemeSpec)
 }
 
 // reconcileRejected handles APIKeys in the Rejected phase.
@@ -328,18 +358,7 @@ func generateAPIKey() (string, error) {
 }
 
 // createSecret creates the APIKey Secret
-func createSecret(apiKey *devportalv1alpha1.APIKey, authScheme *kuadrantapiv1.AuthSchemeSpec) (*corev1.Secret, error) {
-	authSchemeLabels := map[string]string{}
-	if authScheme != nil {
-		authMethods := lo.FilterValues(authScheme.Authentication, func(k string, v kuadrantapiv1.MergeableAuthenticationSpec) bool {
-			return v.GetMethod() == v1beta3.ApiKeyAuthentication
-		})
-
-		if authMethods != nil {
-			authSchemeLabels = authMethods[0].ApiKey.Selector.MatchLabels // TODO: Decide the heuristics about targeting specific APIKey(s)
-		}
-	}
-
+func createSecret(apiKey *devportalv1alpha1.APIKey, authSchemeLabels map[string]string) (*corev1.Secret, error) {
 	apiKeyLabels := lo.Assign(
 		authSchemeLabels,
 		map[string]string{

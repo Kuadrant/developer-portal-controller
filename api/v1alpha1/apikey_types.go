@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	authorinov1beta3 "github.com/kuadrant/authorino/api/v1beta3"
 	planpolicyv1alpha1 "github.com/kuadrant/kuadrant-operator/cmd/extensions/plan-policy/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -88,6 +89,10 @@ type APIKeyStatus struct {
 	// +kubebuilder:default=true
 	CanReadSecret bool `json:"canReadSecret,omitempty"`
 
+	// AuthScheme displays the APIKey AuthScheme
+	// +optional
+	AuthScheme *AuthScheme `json:"authScheme,omitempty"`
+
 	// Conditions represent the latest available observations of the APIKey's state
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
@@ -100,6 +105,12 @@ type SecretReference struct {
 
 	// The key of the secret to select from.  Must be a valid secret key.
 	Key string `json:"key"`
+}
+
+// AuthScheme describes the APIKey AuthScheme defined in the Kuadrant AuthPolicy for the HTTPRoute targeting the APIProduct
+type AuthScheme struct {
+	AuthenticationSpec *authorinov1beta3.ApiKeyAuthenticationSpec `json:"authenticationSpec,omitempty"`
+	Credentials        *authorinov1beta3.Credentials              `json:"credentials,omitempty"`
 }
 
 // +kubebuilder:object:root=true
