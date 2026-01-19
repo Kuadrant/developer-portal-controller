@@ -58,7 +58,8 @@ The APIProduct CRD is part of the Developer Portal extension for Kuadrant. It re
 |----------------------|----------------------------------------|---------------------------------------------------------------------------------------------------|
 | `observedGeneration` | Integer                                | ObservedGeneration reflects the generation of the most recently observed spec                     |
 | `conditions`         | [][ConditionSpec](#conditionspec)      | Represents the observations of the APIProduct's current state                                     |
-| `discoveredPlans`    | [][DiscoveredPlan](#discoveredplan)    | List of PlanPolicies discovered from the HTTPRoute                                                |
+| `discoveredPlans`    | [][PlanSpec](#planspec)                | List of PlanPolicies discovered from the HTTPRoute                                                |
+| `discoveredAuthScheme` | [AuthSchemeSpec](https://github.com/Kuadrant/kuadrant-operator/blob/main/doc/reference/authpolicy.md#authscheme)                       | Authentication scheme discovered from the HTTPRoute's AuthPolicy                                  |
 | `openapi`            | [OpenAPIStatus](#openapistatus)        | OpenAPI specification fetched from the API and its sync status                                    |
 
 ### ConditionSpec
@@ -74,7 +75,7 @@ Standard Kubernetes condition type with the following fields:
 | `lastTransitionTime` | Timestamp | Last time the condition transitioned from one status to another                   |
 | `observedGeneration` | Integer   | The .metadata.generation that the condition was set based upon                    |
 
-### DiscoveredPlan
+### PlanSpec
 
 | **Field**        | **Type** | **Required** | **Description**                                                    |
 |------------------|----------|:------------:|--------------------------------------------------------------------|
