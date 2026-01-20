@@ -23,7 +23,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/kuadrant/authorino/api/v1beta3"
+	devportalv1alpha1 "github.com/kuadrant/developer-portal-controller/api/v1alpha1"
+	kuadrantapiv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	planpolicyv1alpha1 "github.com/kuadrant/kuadrant-operator/cmd/extensions/plan-policy/api/v1alpha1"
+	"github.com/samber/lo"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -34,8 +38,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	devportalv1alpha1 "github.com/kuadrant/developer-portal-controller/api/v1alpha1"
 )
 
 const (
@@ -43,6 +45,7 @@ const (
 	apiKeySecretAnnotationUser      = "secret.kuadrant.io/user-id"
 	apiKeySecretLabelAuthorinoKey   = "authorino.kuadrant.io/managed-by"
 	apiKeySecretLabelAuthorinoValue = "authorino"
+	apiKeySecretLabelDevPortalKey   = "devportal.kuadrant.io/apiproduct"
 	apiKeySecretKey                 = "api_key"
 	apiKeyLength                    = 32 // bytes, will be base64 encoded
 	apiKeyPhaseApproved             = "Approved"
@@ -107,23 +110,8 @@ func (r *APIKeyReconciler) reconcilePending(ctx context.Context, apiKey *devport
 	logger := log.FromContext(ctx)
 
 	// Get APIProduct
-	// Fetch the APIProduct to get additional metadata
-	apiProduct := &devportalv1alpha1.APIProduct{}
-	apiProductKey := types.NamespacedName{
-		Name:      apiKey.Spec.APIProductRef.Name,
-		Namespace: apiKey.Namespace,
-	}
-	if err := r.Get(ctx, apiProductKey, apiProduct); err != nil {
-		if apierrors.IsNotFound(err) {
-			logger.Error(err, "Referenced APIProduct not found", "apiProduct", apiProductKey)
-			setReadyCondition(apiKey, metav1.ConditionFalse, "APIProductNotFound",
-				fmt.Sprintf("APIProduct %s not found", apiProductKey))
-			if err := r.Status().Update(ctx, apiKey); err != nil {
-				return ctrl.Result{}, err
-			}
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-		}
-		logger.Error(err, "Failed to get APIProduct")
+	apiProduct, err := r.getAPIProduct(ctx, apiKey)
+	if err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -179,6 +167,30 @@ func (r *APIKeyReconciler) reconcilePending(ctx context.Context, apiKey *devport
 	return ctrl.Result{}, nil
 }
 
+func (r *APIKeyReconciler) getAPIProduct(ctx context.Context, apiKey *devportalv1alpha1.APIKey) (*devportalv1alpha1.APIProduct, error) {
+	logger := log.FromContext(ctx)
+	// Fetch the APIProduct to get additional metadata
+	apiProduct := &devportalv1alpha1.APIProduct{}
+	apiProductKey := types.NamespacedName{
+		Name:      apiKey.Spec.APIProductRef.Name,
+		Namespace: apiKey.Namespace,
+	}
+	if err := r.Get(ctx, apiProductKey, apiProduct); err != nil {
+		if apierrors.IsNotFound(err) {
+			logger.Error(err, "Referenced APIProduct not found", "apiProduct", apiProductKey)
+			setReadyCondition(apiKey, metav1.ConditionFalse, "APIProductNotFound",
+				fmt.Sprintf("APIProduct %s not found", apiProductKey))
+			if err := r.Status().Update(ctx, apiKey); err != nil {
+				return nil, err
+			}
+			return nil, nil
+		}
+		logger.Error(err, "Failed to get APIProduct")
+		return nil, err
+	}
+	return apiProduct, nil
+}
+
 // reconcileApproved handles APIKeys in the Approved phase.
 func (r *APIKeyReconciler) reconcileApproved(ctx context.Context, apiKey *devportalv1alpha1.APIKey) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
@@ -200,8 +212,29 @@ func (r *APIKeyReconciler) reconcileApproved(ctx context.Context, apiKey *devpor
 		// Secret was deleted, recreate it
 	}
 
+	// Get APIProduct
+	apiProduct, err := r.getAPIProduct(ctx, apiKey)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	var authSchemeSpec *kuadrantapiv1.AuthSchemeSpec
+	if apiProduct != nil {
+		authSchemeSpec = apiProduct.Status.DiscoveredAuthScheme
+	}
+
+	apiKeyAuthScheme, err := getAPIKeyAuthScheme(authSchemeSpec)
+	if err != nil {
+		logger.Error(err, "Failed to get the APIKey AuthScheme")
+		// TODO: Decide if this should bubble up the error
+	}
+
+	var matchLabels map[string]string
+	if apiKeyAuthScheme != nil {
+		matchLabels = apiKeyAuthScheme.AuthenticationSpec.Selector.MatchLabels
+	}
+
 	// Create Secret
-	secret, err := createSecret(apiKey)
+	secret, err := createSecret(apiKey, matchLabels)
 	if err != nil {
 		logger.Error(err, "Failed to create secret")
 		return ctrl.Result{}, err
@@ -235,6 +268,9 @@ func (r *APIKeyReconciler) reconcileApproved(ctx context.Context, apiKey *devpor
 		Key:  apiKeySecretKey,
 	}
 
+	// Update status with APIKey AuthScheme
+	apiKey.Status.AuthScheme = apiKeyAuthScheme
+
 	setReadyCondition(apiKey, metav1.ConditionTrue, "SecretCreated",
 		"API key secret has been created successfully")
 
@@ -244,6 +280,22 @@ func (r *APIKeyReconciler) reconcileApproved(ctx context.Context, apiKey *devpor
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func getAPIKeyAuthScheme(authSchemeSpec *kuadrantapiv1.AuthSchemeSpec) (*devportalv1alpha1.AuthScheme, error) {
+	if authSchemeSpec != nil {
+		apiKeyAuthMethods := lo.FilterValues(authSchemeSpec.Authentication, func(k string, v kuadrantapiv1.MergeableAuthenticationSpec) bool {
+			return v.GetMethod() == v1beta3.ApiKeyAuthentication
+		})
+
+		if len(apiKeyAuthMethods) > 0 {
+			return &devportalv1alpha1.AuthScheme{
+				AuthenticationSpec: apiKeyAuthMethods[0].ApiKey, // TODO: Decide the heuristics about targeting specific APIKey(s), picking the first one for now.
+				Credentials:        &apiKeyAuthMethods[0].Credentials,
+			}, nil
+		}
+	}
+	return nil, fmt.Errorf("failed to find APIKey auth methods in auth scheme spec: %+v", authSchemeSpec)
 }
 
 // reconcileRejected handles APIKeys in the Rejected phase.
@@ -306,7 +358,15 @@ func generateAPIKey() (string, error) {
 }
 
 // createSecret creates the APIKey Secret
-func createSecret(apiKey *devportalv1alpha1.APIKey) (*corev1.Secret, error) {
+func createSecret(apiKey *devportalv1alpha1.APIKey, authSchemeLabels map[string]string) (*corev1.Secret, error) {
+	apiKeyLabels := lo.Assign(
+		authSchemeLabels,
+		map[string]string{
+			apiKeySecretLabelDevPortalKey: apiKey.Spec.APIProductRef.Name,
+			apiKeySecretLabelAuthorinoKey: apiKeySecretLabelAuthorinoValue,
+		},
+	)
+
 	// Generate API key
 	generatedKey, err := generateAPIKey()
 	if err != nil {
@@ -321,10 +381,7 @@ func createSecret(apiKey *devportalv1alpha1.APIKey) (*corev1.Secret, error) {
 				apiKeySecretAnnotationPlan: apiKey.Spec.PlanTier,
 				apiKeySecretAnnotationUser: apiKey.Spec.RequestedBy.UserID,
 			},
-			Labels: map[string]string{
-				"app":                         apiKey.Spec.APIProductRef.Name,
-				apiKeySecretLabelAuthorinoKey: apiKeySecretLabelAuthorinoValue,
-			},
+			Labels: apiKeyLabels,
 		},
 		Type: corev1.SecretTypeOpaque,
 		StringData: map[string]string{
