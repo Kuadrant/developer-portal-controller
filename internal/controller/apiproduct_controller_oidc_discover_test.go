@@ -162,9 +162,10 @@ var _ = Describe("APIProduct Controller: OIDC Discovery", func() {
 
 			By("Reconciling the created resource")
 			controllerReconciler := &APIProductReconciler{
-				Client:     k8sClient,
-				Scheme:     k8sClient.Scheme(),
-				HTTPClient: mockClient,
+				Client:             k8sClient,
+				Scheme:             k8sClient.Scheme(),
+				HTTPClient:         mockClient,
+				OpenAPISpecMaxSize: 500 * 1024,
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
@@ -284,9 +285,10 @@ var _ = Describe("APIProduct Controller: OIDC Discovery", func() {
 			By("Reconciling the created resource")
 			mockClient := &mockHTTPClient{}
 			controllerReconciler := &APIProductReconciler{
-				Client:     k8sClient,
-				Scheme:     k8sClient.Scheme(),
-				HTTPClient: mockClient,
+				Client:             k8sClient,
+				Scheme:             k8sClient.Scheme(),
+				HTTPClient:         mockClient,
+				OpenAPISpecMaxSize: 500 * 1024,
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
@@ -400,9 +402,10 @@ var _ = Describe("APIProduct Controller: OIDC Discovery", func() {
 
 			By("Reconciling the created resource")
 			controllerReconciler := &APIProductReconciler{
-				Client:     k8sClient,
-				Scheme:     k8sClient.Scheme(),
-				HTTPClient: mockClient,
+				Client:             k8sClient,
+				Scheme:             k8sClient.Scheme(),
+				HTTPClient:         mockClient,
+				OpenAPISpecMaxSize: 500 * 1024,
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
@@ -523,9 +526,10 @@ var _ = Describe("APIProduct Controller: OIDC Discovery", func() {
 			}
 
 			controllerReconciler := &APIProductReconciler{
-				Client:     k8sClient,
-				Scheme:     k8sClient.Scheme(),
-				HTTPClient: mockClient,
+				Client:             k8sClient,
+				Scheme:             k8sClient.Scheme(),
+				HTTPClient:         mockClient,
+				OpenAPISpecMaxSize: 500 * 1024,
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})

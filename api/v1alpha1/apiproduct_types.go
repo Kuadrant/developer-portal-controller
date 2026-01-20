@@ -31,6 +31,7 @@ const (
 	StatusConditionPlanPolicyDiscovered string = "PlanPolicyDiscovered"
 	StatusConditionAuthPolicyDiscovered string = "AuthPolicyDiscovered"
 	StatusConditionOIDCDiscovered       string = "OIDCDiscovered"
+	StatusConditionOpenAPISpecReady     string = "OpenAPISpecReady"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -125,6 +126,10 @@ type OpenAPIStatus struct {
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Format=date-time
 	LastSyncTime metav1.Time `json:"lastSyncTime" protobuf:"bytes,4,opt,name=lastSyncTime"`
+
+	// maxSizeUsed is the max size limit that was in effect when this spec was fetched.
+	// +optional
+	MaxSizeUsed int `json:"maxSizeUsed,omitempty"`
 }
 
 // OIDCDiscoveryStatus contains OIDC discovery information fetched from the issuer

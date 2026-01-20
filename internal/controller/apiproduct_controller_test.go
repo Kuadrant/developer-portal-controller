@@ -160,8 +160,9 @@ var _ = Describe("APIProduct Controller", func() {
 		It("should discover plans from route-targeted planpolicy", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &APIProductReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				Client:             k8sClient,
+				Scheme:             k8sClient.Scheme(),
+				OpenAPISpecMaxSize: 500 * 1024,
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
@@ -289,8 +290,9 @@ var _ = Describe("APIProduct Controller", func() {
 		It("should discover plans from gateway-targeted planpolicy", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &APIProductReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				Client:             k8sClient,
+				Scheme:             k8sClient.Scheme(),
+				OpenAPISpecMaxSize: 500 * 1024,
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
@@ -373,8 +375,9 @@ var _ = Describe("APIProduct Controller", func() {
 		It("should set ready condition to false when httproute not found", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &APIProductReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				Client:             k8sClient,
+				Scheme:             k8sClient.Scheme(),
+				OpenAPISpecMaxSize: 500 * 1024,
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
@@ -454,8 +457,9 @@ var _ = Describe("APIProduct Controller", func() {
 		It("should indicate httproute is ready but no planpolicy found", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &APIProductReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				Client:             k8sClient,
+				Scheme:             k8sClient.Scheme(),
+				OpenAPISpecMaxSize: 500 * 1024,
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
@@ -569,8 +573,9 @@ var _ = Describe("APIProduct Controller", func() {
 		It("should set ready condition to false when httproute is not accepted", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &APIProductReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				Client:             k8sClient,
+				Scheme:             k8sClient.Scheme(),
+				OpenAPISpecMaxSize: 500 * 1024,
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
@@ -670,9 +675,10 @@ var _ = Describe("APIProduct Controller", func() {
 			}
 
 			controllerReconciler := &APIProductReconciler{
-				Client:     k8sClient,
-				Scheme:     k8sClient.Scheme(),
-				HTTPClient: mockClient,
+				Client:             k8sClient,
+				Scheme:             k8sClient.Scheme(),
+				HTTPClient:         mockClient,
+				OpenAPISpecMaxSize: 500 * 1024,
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
@@ -699,9 +705,10 @@ var _ = Describe("APIProduct Controller", func() {
 			}
 
 			controllerReconciler := &APIProductReconciler{
-				Client:     k8sClient,
-				Scheme:     k8sClient.Scheme(),
-				HTTPClient: mockClient,
+				Client:             k8sClient,
+				Scheme:             k8sClient.Scheme(),
+				HTTPClient:         mockClient,
+				OpenAPISpecMaxSize: 500 * 1024,
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
@@ -785,9 +792,10 @@ var _ = Describe("APIProduct Controller", func() {
 		It("should not populate OpenAPI status", func() {
 			By("Reconciling the resource")
 			controllerReconciler := &APIProductReconciler{
-				Client:     k8sClient,
-				Scheme:     k8sClient.Scheme(),
-				HTTPClient: &mockHTTPClient{},
+				Client:             k8sClient,
+				Scheme:             k8sClient.Scheme(),
+				HTTPClient:         &mockHTTPClient{},
+				OpenAPISpecMaxSize: 500 * 1024,
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
