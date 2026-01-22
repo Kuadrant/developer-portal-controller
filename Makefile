@@ -5,6 +5,12 @@
 # - use environment variables to overwrite this value (e.g export VERSION=0.0.2)
 VERSION ?= 0.0.0
 
+# QUAY_IMAGE_EXPIRY defines when to expire the built quay images.
+# The time values could be something like 1h, 2d, 3w for hours, days, and weeks, respectively,
+# from the time the image is built.
+QUAY_IMAGE_EXPIRY ?= never
+
+
 # IMAGE_TAG_BASE defines the docker.io namespace and part of the image name for remote images.
 # This variable is used to construct full image tags for bundle and catalog images.
 #
@@ -147,6 +153,7 @@ docker-build: ## Build docker image with the manager.
 		--build-arg GIT_SHA=$(GIT_SHA) \
 		--build-arg DIRTY=$(DIRTY) \
 		--build-arg VERSION=v$(VERSION) \
+		--build-arg QUAY_IMAGE_EXPIRY=$(QUAY_IMAGE_EXPIRY) \
 		-t ${IMG} .
 
 .PHONY: docker-push
