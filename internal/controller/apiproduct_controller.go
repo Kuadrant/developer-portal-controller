@@ -349,15 +349,15 @@ func (r *APIProductReconciler) openAPISpecReadyCondition(openAPISpec *devportalv
 //
 // Multiple PlanPolicies scenario:
 // When both HTTPRoute-level and Gateway-level PlanPolicies exist:
-//  - PlanPolicy A (targeting Gateway) creates → RateLimitPolicy A (targeting Gateway)
-//  - PlanPolicy B (targeting HTTPRoute) creates → RateLimitPolicy B (targeting HTTPRoute)
-//  - RateLimitPolicy B will atomically override RateLimitPolicy A for that specific HTTPRoute
+//   - PlanPolicy A (targeting Gateway) creates → RateLimitPolicy A (targeting Gateway)
+//   - PlanPolicy B (targeting HTTPRoute) creates → RateLimitPolicy B (targeting HTTPRoute)
+//   - RateLimitPolicy B will atomically override RateLimitPolicy A for that specific HTTPRoute
 //
 // The effective policy is NOT a merge of both PlanPolicies. Instead, the most specific
 // RateLimitPolicy wins via atomic override because:
-//  - Both use atomic merge strategy (default)
-//  - More specific policies (HTTPRoute-level) take precedence over less specific ones (Gateway-level)
-//  - The atomic strategy means the entire policy is replaced, not merged rule-by-rule
+//   - Both use atomic merge strategy (default)
+//   - More specific policies (HTTPRoute-level) take precedence over less specific ones (Gateway-level)
+//   - The atomic strategy means the entire policy is replaced, not merged rule-by-rule
 //
 // This function returns only the most specific PlanPolicy found, which will be the one
 // that determines the effective rate limiting behavior for the APIProduct.
