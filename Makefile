@@ -8,7 +8,7 @@ VERSION ?= 0.0.0
 # QUAY_IMAGE_EXPIRY defines when to expire the built quay images.
 # The time values could be something like 1h, 2d, 3w for hours, days, and weeks, respectively,
 # from the time the image is built.
-QUAY_IMAGE_EXPIRY ?= never
+QUAY_IMAGE_EXPIRY ?= 3w
 
 
 # IMAGE_TAG_BASE defines the docker.io namespace and part of the image name for remote images.
@@ -319,6 +319,10 @@ endif
 .PHONY: read-release-version
 read-release-version: ## Reads release version
 	@echo "$(VERSION)"
+
+.PHONY: read-quay-image-expiry
+read-quay-image-expiry: ## Reads quay image expiry
+	@echo "$(QUAY_IMAGE_EXPIRY)"
 
 # Include last to avoid changing MAKEFILE_LIST used above
 include ./make/*.mk
