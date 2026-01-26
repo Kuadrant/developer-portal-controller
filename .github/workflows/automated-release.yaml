@@ -57,6 +57,14 @@ jobs:
           echo "Updated Makefile VERSION to $VERSION"
           grep "^VERSION" Makefile
 
+      - name: Update QUAY_IMAGE_EXPIRY in Makefile
+        run: |
+          QUAY_IMAGE_EXPIRY="never"
+          sed -i "s/^QUAY_IMAGE_EXPIRY ?= .*/QUAY_IMAGE_EXPIRY ?= $QUAY_IMAGE_EXPIRY/" Makefile
+
+          echo "Updated Makefile QUAY_IMAGE_EXPIRY to $QUAY_IMAGE_EXPIRY"
+          grep "^QUAY_IMAGE_EXPIRY" Makefile
+
       - name: Create Pull Request
         if: ${{ !env.ACT }}
         uses: peter-evans/create-pull-request@v7
@@ -75,6 +83,7 @@ jobs:
 
             ## Changes
             - Updated VERSION in Makefile to ${{ github.event.inputs.version }}
+            - Updated QUAY_IMAGE_EXPIRY in Makefile to never
 
             ## Post-merge
             After this PR is merged, a workflow will automatically:
