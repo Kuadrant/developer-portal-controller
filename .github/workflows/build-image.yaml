@@ -49,8 +49,14 @@ jobs:
       - name: Read quay image expiry
         id: quay-expiry
         run: |
-          expiry=`make read-quay-image-expiry`
-          echo expiry=$expiry >> $GITHUB_OUTPUT
+          if [[ "${{ github.ref_name }}" == "main" || "${{ github.ref_type }}" == "tag" && "${{ github.ref_name }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-.*)?$ ]]; then
+            echo "expiry=never" >> $GITHUB_OUTPUT
+            echo "Setting expiry to 'never' for ref ${{ github.ref_name }}"
+          else
+            expiry=`make read-quay-image-expiry`
+            echo expiry=$expiry >> $GITHUB_OUTPUT
+            echo "Reading expiry from Makefile, set to $expiry for ref ${{ github.ref_name }}"
+          fi
       - name: Build and Push Image
         if: github.repository_owner == 'kuadrant'
         id: build-image
