@@ -3,12 +3,12 @@
 # To re-generate a bundle for another specific version without changing the standard setup, you can:
 # - use the VERSION as arg of the bundle target (e.g make bundle VERSION=0.0.2)
 # - use environment variables to overwrite this value (e.g export VERSION=0.0.2)
-VERSION ?= 0.0.0
+VERSION ?= 0.1.0
 
 # QUAY_IMAGE_EXPIRY defines when to expire the built quay images.
 # The time values could be something like 1h, 2d, 3w for hours, days, and weeks, respectively,
 # from the time the image is built.
-QUAY_IMAGE_EXPIRY ?= 3w
+QUAY_IMAGE_EXPIRY ?= never
 
 
 # IMAGE_TAG_BASE defines the docker.io namespace and part of the image name for remote images.
