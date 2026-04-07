@@ -116,6 +116,9 @@ status:
                 description: "invalid input"
 ```
 
+> [!NOTE]
+> Breaking changes: The current `v1alpha1` API is in dev preview support mode, so breaking changes are acceptable.
+
 #### APIProduct Spec Fields
 
 - `displayName` (required): Human-readable name for the API product
@@ -148,40 +151,66 @@ apiVersion: devportal.kuadrant.io/v1alpha1
 kind: APIKey
 metadata:
   name: toystore-apikey
-  namespace: default
+  namespace: consumer-namespace
   labels:
     app.kubernetes.io/name: developer-portal-controller
     app.kubernetes.io/managed-by: kustomize
 spec:
   apiProductRef:
     name: toystore-api
+    namespace: api-owner-namespace
   planTier: gold
   useCase: "Authentication key for our Toystore API integration"
   requestedBy:
     userId: user-12345
     email: developer@example.com
 status:
-  phase: Approved
   apiHostname: api.example.com
-  reviewedBy: admin@example.com
-  reviewedAt: "2025-12-09T10:30:00Z"
+
+  # API key value projection (set by Developer Portal Controller)
+  # Exposes the secret value to consumer without requiring secret read permissions
+  apiKeyValue: "apk_1234567890abcdef"
+
+  # Rate limits from selected plan
   limits:
     daily: 1000
-  secretRef:
-    name: toystore-apikey-secret
-    key: api-key
-  canReadSecret: true
+    monthly: 300000
+    custom:
+      - limit: 100
+        window: 1m
+
+  # Authentication scheme
+  authScheme:
+    credentials:
+      authorizationHeader:
+        prefix: "Bearer"
+    authenticationSpec:
+      selector:
+        matchLabels:
+          kuadrant.io/apikey: mobile-app-payment-key
+
+  # Approval conditions
+  # Lifecycle states:
+  #   - Pending: No conditions (initial state after creation)
+  #   - Approved: Approved condition with status "True"
+  #   - Denied: Denied condition with status "True"
+  #   - Failed: Failed condition with status "True"
   conditions:
-    - type: Ready
+    - type: Approved
       status: "True"
-      reason: APIKeyReady
-      message: APIKey has been approved and secret created
+      reason: ApprovedByOwner
+      message: APIKey has been approved for toystore integration
       lastTransitionTime: "2025-12-09T10:30:00Z"
 ```
+
+> [!NOTE]
+> Breaking changes: The current `v1alpha1` API is in dev preview support mode, so breaking changes are acceptable.
 
 #### APIKey Spec Fields
 
 - `apiProductRef` (required): Reference to the APIProduct this APIKey belongs to
+  - `name`: Name of the APIProduct
+  - `namespace`: Namespace of the APIProduct (enables cross-namespace references)
 - `planTier` (required): Tier of the plan (e.g., "gold", "silver", "bronze", "premium", "basic")
 - `useCase` (required): Description of how the API key will be used
 - `requestedBy` (required): Information about the requester
@@ -190,16 +219,16 @@ status:
 
 #### APIKey Status Fields
 
-- `phase`: Current phase of the APIKey (`Pending`, `Approved`, or `Rejected`)
 - `apiHostname`: Hostname from the HTTPRoute
-- `reviewedBy`: Who approved or rejected the request
-- `reviewedAt`: Timestamp when the request was reviewed
+- `apiKeyValue`: Projected API key value from the secret (exposes the secret value without requiring secret read permissions)
 - `limits`: Rate limits for the plan
-- `secretRef`: Reference to the created Secret containing the API key
-  - `name`: Name of the secret
-  - `key`: Key within the secret
-- `canReadSecret`: Permission to read the APIKey's secret (default: true)
+- `authScheme`: Authentication scheme from the AuthPolicy
 - `conditions`: Latest observations of the APIKey's state
+  - Lifecycle states based on conditions:
+    - **Pending**: No approval/denial conditions (initial state)
+    - **Approved**: `Approved` condition with status `"True"`
+    - **Denied**: `Denied` condition with status `"True"`
+    - **Failed**: `Failed` condition with status `"True"`
 
 ## Development environment setup
 

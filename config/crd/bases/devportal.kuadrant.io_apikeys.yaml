@@ -17,8 +17,8 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.phase
-      name: Phase
+    - jsonPath: .status.conditions[?(@.type=="Approved")].status
+      name: Approved
       type: string
     - jsonPath: .spec.apiProductRef.name
       name: API
@@ -62,8 +62,11 @@ spec:
                 properties:
                   name:
                     type: string
+                  namespace:
+                    type: string
                 required:
                 - name
+                - namespace
                 type: object
               planTier:
                 description: PlanTier is the tier of the plan (e.g., "premium", "basic",
@@ -99,6 +102,11 @@ spec:
             properties:
               apiHostname:
                 description: APIHostname is the hostname from the HTTPRoute
+                type: string
+              apiKeyValue:
+                description: |-
+                  APIKeyValue is the projected API key value from the secret
+                  Exposes the secret value to consumer without requiring secret read permissions
                 type: string
               authScheme:
                 description: AuthScheme displays the APIKey AuthScheme
@@ -193,11 +201,6 @@ spec:
                         type: object
                     type: object
                 type: object
-              canReadSecret:
-                default: true
-                description: CanReadSecret expresses the permission to read the APIKey's
-                  secret
-                type: boolean
               conditions:
                 description: Conditions represent the latest available observations
                   of the APIKey's state
@@ -292,37 +295,6 @@ spec:
                   yearly:
                     description: Yearly limit of requests for this plan.
                     type: integer
-                type: object
-              phase:
-                description: |-
-                  Phase represents the current phase of the APIKey
-                  Valid values are "Pending", "Approved", or "Rejected"
-                enum:
-                - Pending
-                - Approved
-                - Rejected
-                type: string
-              reviewedAt:
-                description: ReviewedAt is the timestamp when the request was reviewed
-                format: date-time
-                type: string
-              reviewedBy:
-                description: ReviewedBy indicates who approved or rejected the request
-                type: string
-              secretRef:
-                description: SecretRef is a reference to the created Secret
-                properties:
-                  key:
-                    description: The key of the secret to select from.  Must be a
-                      valid secret key.
-                    type: string
-                  name:
-                    description: The name of the secret in the Authorino's namespace
-                      to select from.
-                    type: string
-                required:
-                - key
-                - name
                 type: object
             type: object
         type: object

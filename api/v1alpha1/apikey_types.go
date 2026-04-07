@@ -22,8 +22,21 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// APIKey condition types
+const (
+	// APIKeyConditionApproved indicates the APIKey has been approved by the API owner
+	APIKeyConditionApproved string = "Approved"
+
+	// APIKeyConditionDenied indicates the APIKey request has been denied by the API owner
+	APIKeyConditionDenied string = "Denied"
+
+	// APIKeyConditionFailed indicates the APIKey processing has failed
+	APIKeyConditionFailed string = "Failed"
+)
+
 type APIProductReference struct {
-	Name string `json:"name"` // Just name for now, in the future we might want to add KGV.
+	Name      string `json:"name"` // Just name for now, in the future we might want to add KGV.
+	Namespace string `json:"namespace"`
 }
 
 // APIKeySpec defines the desired state of APIKey.
@@ -59,35 +72,18 @@ type RequestedBy struct {
 
 // APIKeyStatus defines the observed state of APIKey.
 type APIKeyStatus struct {
-	// Phase represents the current phase of the APIKey
-	// Valid values are "Pending", "Approved", or "Rejected"
-	// +kubebuilder:validation:Enum=Pending;Approved;Rejected
-	// +optional
-	Phase string `json:"phase,omitempty"`
-
 	// APIHostname is the hostname from the HTTPRoute
 	// +optional
 	APIHostname string `json:"apiHostname,omitempty"`
 
-	// ReviewedBy indicates who approved or rejected the request
+	// APIKeyValue is the projected API key value from the secret
+	// Exposes the secret value to consumer without requiring secret read permissions
 	// +optional
-	ReviewedBy string `json:"reviewedBy,omitempty"`
-
-	// ReviewedAt is the timestamp when the request was reviewed
-	// +optional
-	ReviewedAt *metav1.Time `json:"reviewedAt,omitempty"`
+	APIKeyValue string `json:"apiKeyValue,omitempty"`
 
 	// Limits contains the rate limits for the plan
 	// +optional
 	Limits *planpolicyv1alpha1.Limits `json:"limits,omitempty"`
-
-	// SecretRef is a reference to the created Secret
-	// +optional
-	SecretRef *SecretReference `json:"secretRef,omitempty"`
-
-	// CanReadSecret expresses the permission to read the APIKey's secret
-	// +kubebuilder:default=true
-	CanReadSecret bool `json:"canReadSecret,omitempty"`
 
 	// AuthScheme displays the APIKey AuthScheme
 	// +optional
@@ -96,15 +92,6 @@ type APIKeyStatus struct {
 	// Conditions represent the latest available observations of the APIKey's state
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-}
-
-// SecretReference contains a reference to a Secret.
-type SecretReference struct {
-	// The name of the secret in the Authorino's namespace to select from.
-	Name string `json:"name"`
-
-	// The key of the secret to select from.  Must be a valid secret key.
-	Key string `json:"key"`
 }
 
 // AuthScheme describes the APIKey AuthScheme defined in the Kuadrant AuthPolicy for the HTTPRoute targeting the APIProduct
@@ -116,7 +103,7 @@ type AuthScheme struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:shortName=apik
-// +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
+// +kubebuilder:printcolumn:name="Approved",type=string,JSONPath=`.status.conditions[?(@.type=="Approved")].status`
 // +kubebuilder:printcolumn:name="API",type=string,JSONPath=`.spec.apiProductRef.name`
 // +kubebuilder:printcolumn:name="Plan",type=string,JSONPath=`.spec.planTier`
 // +kubebuilder:printcolumn:name="User",type=string,JSONPath=`.spec.requestedBy.userId`
