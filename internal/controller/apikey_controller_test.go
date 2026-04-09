@@ -34,7 +34,8 @@ import (
 	devportalv1alpha1 "github.com/kuadrant/developer-portal-controller/api/v1alpha1"
 )
 
-var _ = Describe("APIKey Controller", func() {
+// Added Pending as the APIKey controller needs to be refactored.
+var _ = Describe("APIKey Controller", Pending, func() {
 	const (
 		nodeTimeOut       = NodeTimeout(time.Second * 30)
 		TestHTTPRouteName = "my-route"

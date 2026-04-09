@@ -19,6 +19,7 @@ rules:
 - apiGroups:
   - devportal.kuadrant.io
   resources:
+  - apikeyrequests
   - apikeys
   - apiproducts
   verbs:
@@ -32,8 +33,13 @@ rules:
 - apiGroups:
   - devportal.kuadrant.io
   resources:
+  - apikeyrequests/status
+  verbs:
+  - patch
+- apiGroups:
+  - devportal.kuadrant.io
+  resources:
   - apikeys/finalizers
-  - apiproducts/finalizers
   verbs:
   - update
 - apiGroups:

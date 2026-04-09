@@ -18,11 +18,19 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type APIKeyReference struct {
 	Name      string `json:"name"`
 	Namespace string `json:"namespace"`
+}
+
+func (a APIKeyReference) ClientObject() client.ObjectKey {
+	return client.ObjectKey{
+		Namespace: a.Namespace,
+		Name:      a.Name,
+	}
 }
 
 type LocalAPIProductReference struct {

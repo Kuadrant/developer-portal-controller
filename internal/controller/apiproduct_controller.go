@@ -65,7 +65,6 @@ type OpenAPISpecErr struct {
 
 // +kubebuilder:rbac:groups=devportal.kuadrant.io,resources=apiproducts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=devportal.kuadrant.io,resources=apiproducts/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=devportal.kuadrant.io,resources=apiproducts/finalizers,verbs=update
 
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes/status,verbs=get
