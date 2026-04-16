@@ -22,7 +22,7 @@ func WithAPIKeys(ctx context.Context, apiKeys *devportalv1alpha1.APIKeyList) con
 func GetAPIKeys(ctx context.Context) *devportalv1alpha1.APIKeyList {
 	apiKeys, ok := ctx.Value(apiKeysCtxKey).(*devportalv1alpha1.APIKeyList)
 	if !ok {
-		return nil
+		return &devportalv1alpha1.APIKeyList{}
 	}
 	return apiKeys
 }
@@ -34,7 +34,7 @@ func WithAPIKeyRequests(ctx context.Context, apiKeyRequests *devportalv1alpha1.A
 func GetAPIKeyRequests(ctx context.Context) *devportalv1alpha1.APIKeyRequestList {
 	apiKeyRequests, ok := ctx.Value(apiKeyRequestCtxKey).(*devportalv1alpha1.APIKeyRequestList)
 	if !ok {
-		return nil
+		return &devportalv1alpha1.APIKeyRequestList{}
 	}
 	return apiKeyRequests
 }
@@ -46,7 +46,7 @@ func WithAPIKeyApprovals(ctx context.Context, apiKeyApprovals *devportalv1alpha1
 func GetAPIKeyApprovals(ctx context.Context) *devportalv1alpha1.APIKeyApprovalList {
 	apiKeyApprovals, ok := ctx.Value(apiKeyApprovalsCtxKey).(*devportalv1alpha1.APIKeyApprovalList)
 	if !ok {
-		return nil
+		return &devportalv1alpha1.APIKeyApprovalList{}
 	}
 	return apiKeyApprovals
 }
