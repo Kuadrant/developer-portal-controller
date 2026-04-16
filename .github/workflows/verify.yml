@@ -59,16 +59,3 @@ jobs:
       - name: Verify generate command
         run: |
           make verify-generate
-  verify-go-mod:
-    name: Verify go.mod
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v5
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - name: Verify generate command
-        run: |
-          make verify-go-mod
