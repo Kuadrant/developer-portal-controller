@@ -49,6 +49,7 @@ import (
 
 	devportalv1alpha1 "github.com/kuadrant/developer-portal-controller/api/v1alpha1"
 	"github.com/kuadrant/developer-portal-controller/internal/controller"
+	"github.com/kuadrant/developer-portal-controller/internal/reconcilers"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -269,6 +270,22 @@ func main() {
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "APIKey")
+		os.Exit(1)
+	}
+
+	if err := (&controller.APIKeyRequestReconciler{
+		BaseReconciler: reconcilers.BaseReconciler{
+			Client: mgr.GetClient(),
+			Scheme: mgr.GetScheme(),
+		}}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "APIKeyRequest")
+		os.Exit(1)
+	}
+	if err := (&controller.APIKeyRequestStatusReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "APIKeyRequestStatus")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
