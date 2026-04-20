@@ -5,6 +5,7 @@ resources:
 - bases/devportal.kuadrant.io_apiproducts.yaml
 - bases/devportal.kuadrant.io_apikeys.yaml
 - bases/devportal.kuadrant.io_apikeyrequests.yaml
+- bases/devportal.kuadrant.io_apikeyapprovals.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

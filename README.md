@@ -247,6 +247,193 @@ status:
     - **Denied**: `Denied` condition with status `"True"`
     - **Failed**: `Failed` condition with status `"True"`
 
+---
+
+### APIKeyRequest
+
+The `APIKeyRequest` resource is a **shadow resource** automatically created by the Developer Portal Controller in the API owner's namespace whenever a consumer creates an `APIKey`. This design enables namespace-based RBAC: API owners can list and review access requests for their API products without requiring cluster-wide permissions to view all APIKeys across all consumer namespaces.
+
+**Key characteristics:**
+- Created automatically by the controller (not by users)
+- Lives in the API owner's namespace
+- Contains request metadata (use case, requester info, plan tier)
+- Does NOT contain the API key secret value (preserves consumer data isolation)
+- Serves as the basis for approval/denial decisions
+
+#### Example
+
+```yaml
+apiVersion: devportal.kuadrant.io/v1alpha1
+kind: APIKeyRequest
+metadata:
+  name: toystore-request-12345
+  namespace: api-owner-namespace  # Owner's namespace
+  labels:
+    app.kubernetes.io/name: developer-portal-controller
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  # Reference to APIProduct in owner's namespace
+  apiProductRef:
+    name: toystore-api
+  
+  # Plan and use case details from consumer's request
+  planTier: gold
+  useCase: "Authentication key for our mobile app integration with Toystore API"
+  
+  # Information about who requested access
+  requestedBy:
+    userId: user-12345
+    email: developer@example.com
+  
+  # Cross-namespace reference to the consumer's APIKey
+  apiKeyRef:
+    name: toystore-apikey
+    namespace: consumer-namespace
+status:
+  conditions:
+    - type: Pending
+      status: "True"
+      reason: AwaitingApproval
+      message: Waiting for API owner to review the request
+      lastTransitionTime: "2026-04-10T10:00:00Z"
+```
+
+> [!NOTE]
+> Breaking changes: The current `v1alpha1` API is in dev preview support mode, so breaking changes are acceptable.
+
+#### APIKeyRequest Spec Fields
+
+- `apiProductRef` (required): Reference to the APIProduct in the owner's namespace
+  - `name`: Name of the APIProduct
+- `planTier` (required): Tier of the plan (e.g., "gold", "silver", "bronze")
+- `useCase` (required): Description of how the API key will be used
+- `requestedBy` (required): Information about the requester
+  - `userId`: Identifier of the user requesting the API key
+  - `email`: Email address of the user
+- `apiKeyRef` (required): Cross-namespace reference to the consumer's APIKey
+  - `name`: Name of the APIKey in the consumer's namespace
+  - `namespace`: Namespace where the APIKey was created
+
+#### APIKeyRequest Status Fields
+
+- `conditions`: Latest observations of the APIKeyRequest's state
+  - **Pending**: Request is awaiting review
+  - **Approved**: Request has been approved
+  - **Denied**: Request has been denied
+
+---
+
+### APIKeyApproval
+
+The `APIKeyApproval` resource represents an API owner's decision to approve or deny an `APIKeyRequest`. API owners create this resource in their own namespace to review and make decisions on API access requests for their API products.
+
+**Key characteristics:**
+- Created by API owners (manual approval mode) or automatically (automatic mode)
+- Lives in the API owner's namespace (same as the APIProduct)
+- Contains approval decision and reviewer metadata
+- Controller validates that the APIKeyApproval namespace matches the APIProduct namespace to prevent cross-namespace approval attacks
+
+#### Example: Approval
+
+```yaml
+apiVersion: devportal.kuadrant.io/v1alpha1
+kind: APIKeyApproval
+metadata:
+  name: toystore-approval-12345
+  namespace: api-owner-namespace
+  labels:
+    app.kubernetes.io/name: developer-portal-controller
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  # Reference to the APIKeyRequest being reviewed
+  apiKeyRequestRef:
+    name: toystore-request-12345
+  
+  # Approval decision
+  approved: true
+  
+  # Reviewer information
+  reviewedBy: api-owner@example.com
+  reviewedAt: "2026-04-10T12:00:00Z"
+  
+  # Optional context for the decision
+  reason: "Approved"
+  message: "The use case is valid and meets our API usage guidelines. Approved for production use with gold tier access."
+```
+
+#### Example: Denial
+
+```yaml
+apiVersion: devportal.kuadrant.io/v1alpha1
+kind: APIKeyApproval
+metadata:
+  name: toystore-approval-67890
+  namespace: api-owner-namespace
+spec:
+  apiKeyRequestRef:
+    name: toystore-request-67890
+  
+  approved: false
+  reviewedBy: api-owner@example.com
+  reviewedAt: "2026-04-10T14:30:00Z"
+  reason: "InvalidUseCase"
+  message: "The requested use case does not align with our API terms of service. Please contact support at api-support@example.com for more information."
+```
+
+> [!NOTE]
+> Breaking changes: The current `v1alpha1` API is in dev preview support mode, so breaking changes are acceptable.
+
+#### APIKeyApproval Spec Fields
+
+- `apiKeyRequestRef` (required): Reference to the APIKeyRequest being reviewed
+  - `name`: Name of the APIKeyRequest (same namespace only)
+- `approved` (required): Boolean indicating whether the request is approved (`true`) or denied (`false`)
+- `reviewedBy` (required): Identifier of the person who reviewed the request (e.g., email, username)
+- `reviewedAt` (required): Timestamp when the request was reviewed (RFC3339 format)
+- `reason` (optional): Short reason for the decision (e.g., "Approved", "Denied", "InvalidUseCase")
+- `message` (optional): Additional context or explanation for the approval or denial decision
+
+---
+
+## RBAC-Based Workflow
+
+The Developer Portal Controller implements a namespace-based RBAC model with three personas:
+
+### Workflow: Manual Approval Mode
+
+1. **Consumer (API Consumer namespace)**
+   - Creates an `APIKey` resource in their namespace
+   - Specifies the desired API product, plan tier, and use case
+   - APIKey starts in **Pending** state (no approval conditions)
+
+2. **Controller (Automatic)**
+   - Detects the new APIKey
+   - Creates an `APIKeyRequest` shadow resource in the **API Owner's namespace**
+   - Copies request metadata (use case, requester, plan tier) but NOT the API key value
+
+3. **API Owner (API Owner namespace)**
+   - Lists `APIKeyRequest` resources in their namespace
+   - Reviews requests for their API products
+   - Creates an `APIKeyApproval` resource with their decision
+   - Controller validates that the approval namespace matches the APIProduct namespace
+
+4. **Controller (Automatic)**
+   - Processes the `APIKeyApproval` decision
+   - Updates the consumer's `APIKey` conditions (Approved/Denied)
+   - If approved: Creates the API key secret in the kuadrant namespace
+   - Projects the API key value to `status.apiKeyValue` in the consumer's APIKey resource
+
+5. **Consumer (API Consumer namespace)**
+   - Checks their `APIKey` status for approval
+   - Accesses the API key value from `status.apiKeyValue` (no secret read permissions needed)
+   - Uses the API key to authenticate API requests
+
+### Workflow: Automatic Approval Mode
+
+If the APIProduct has `approvalMode: automatic`, the controller automatically creates an `APIKeyApproval` resource with `approved: true` when the `APIKeyRequest` is created, skipping the manual review step.
+
+---
+
 ## Development environment setup
 
 Dev env
@@ -266,18 +453,44 @@ make local-deploy
 
 ## Usage
 
-### Creating an APIProduct
+### Creating an APIProduct (API Owner)
 
-1. Create an HTTPRoute for your API
-2. Create a PlanPolicy to define rate limits and tiers
+1. Create an HTTPRoute for your API in your namespace
+2. Create a PlanPolicy to define rate limits and tiers for the HTTPRoute
 3. Create an APIProduct referencing the HTTPRoute
+4. Set `approvalMode` to `manual` or `automatic` based on your approval requirements
 
-### Requesting an APIKey
+### Requesting API Access (API Consumer)
 
-1. Create an APIKey resource referencing the APIProduct
-2. If `approvalMode` is `manual`, wait for approval
-3. Once approved, the secret will be created with the API key
-4. Use the key from the secret to authenticate API requests
+1. **Create an APIKey** resource in your namespace referencing the API owner's APIProduct
+   - Use a cross-namespace reference: `spec.apiProductRef.namespace`
+   - Specify your desired plan tier and use case
+   - Provide your user ID and email
+
+2. **Wait for Review** (if `approvalMode` is `manual`)
+   - Controller automatically creates an `APIKeyRequest` in the API owner's namespace
+   - API owner reviews your request and creates an `APIKeyApproval` resource
+   - Check your `APIKey` status conditions for approval/denial
+
+3. **Access Your API Key**
+   - Once approved, retrieve the API key value from `status.apiKeyValue`
+   - No secret read permissions needed
+   - Use the key to authenticate your API requests
+
+### Reviewing Requests (API Owner)
+
+1. **List Requests** for your API products
+   - View `APIKeyRequest` resources in your namespace
+   - Each request contains consumer's use case and requester information
+
+2. **Make a Decision**
+   - Create an `APIKeyApproval` resource with your decision
+   - Set `approved: true` (approve) or `approved: false` (deny)
+   - Provide reviewer info and optional reason/message
+
+3. **Track Approvals**
+   - List `APIKeyApproval` resources to see all decisions
+   - Controller automatically updates the consumer's `APIKey` status
 
 ## kubectl Commands
 
@@ -288,11 +501,50 @@ kubectl get apiproducts
 # List APIKeys (shortname: apik)
 kubectl get apik
 
-# View APIKey details with phase and plan
+# View APIKey details with approval status
 kubectl get apik -o wide
 
 # Describe an APIKey to see status details
 kubectl describe apikey toystore-apikey
+
+# List APIKeyRequests (API owner view)
+kubectl get apikeyrequests -n api-owner-namespace
+
+# Describe an APIKeyRequest to review details
+kubectl describe apikeyrequest toystore-request-12345 -n api-owner-namespace
+
+# List APIKeyApprovals (API owner view)
+kubectl get apikeyapprovals -n api-owner-namespace
+
+# Describe an APIKeyApproval to see the decision
+kubectl describe apikeyapproval toystore-approval-12345 -n api-owner-namespace
+```
+
+### Example: API Owner Reviewing Requests
+
+```bash
+# As an API owner, list all pending requests for your API products
+kubectl get apikeyrequests -n my-api-namespace
+
+# Review a specific request
+kubectl describe apikeyrequest request-12345 -n my-api-namespace
+
+# Approve the request by creating an APIKeyApproval
+kubectl apply -f - <<EOF
+apiVersion: devportal.kuadrant.io/v1alpha1
+kind: APIKeyApproval
+metadata:
+  name: approval-12345
+  namespace: my-api-namespace
+spec:
+  apiKeyRequestRef:
+    name: request-12345
+  approved: true
+  reviewedBy: owner@example.com
+  reviewedAt: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  reason: "Approved"
+  message: "Use case is valid"
+EOF
 ```
 
 ## License

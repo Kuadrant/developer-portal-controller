@@ -3,4 +3,5 @@ resources:
 - devportal_v1alpha1_apiproduct.yaml
 - devportal_v1alpha1_apikey.yaml
 - devportal_v1alpha1_apikeyrequest.yaml
+- devportal_v1alpha1_apikeyapproval.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

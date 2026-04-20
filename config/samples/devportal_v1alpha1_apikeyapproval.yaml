@@ -1,0 +1,15 @@
+apiVersion: devportal.kuadrant.io/v1alpha1
+kind: APIKeyApproval
+metadata:
+  labels:
+    app.kubernetes.io/name: developer-portal-controller
+    app.kubernetes.io/managed-by: kustomize
+  name: apikeyapproval-sample
+spec:
+  apiKeyRequestRef:
+    name: apikeyrequest-sample
+  approved: true
+  reviewedBy: api-owner@example.com
+  reviewedAt: "2026-04-10T12:00:00Z"
+  reason: "Approved"
+  message: "The use case is valid and meets our API usage guidelines"

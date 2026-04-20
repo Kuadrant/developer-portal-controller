@@ -22,6 +22,9 @@ resources:
 # default, aiding admins in cluster management. Those roles are
 # not used by the developer-portal-controller itself. You can comment the following lines
 # if you do not want those helpers be installed with your Project.
+- apikeyapproval_admin_role.yaml
+- apikeyapproval_editor_role.yaml
+- apikeyapproval_viewer_role.yaml
 - apikeyrequest_admin_role.yaml
 - apikeyrequest_editor_role.yaml
 - apikeyrequest_viewer_role.yaml
