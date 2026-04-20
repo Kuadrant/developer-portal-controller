@@ -2,7 +2,7 @@
 
 ## Overview
 
-The APIKeyApproval CRD is part of the Developer Portal extension for Kuadrant. It represents the approval or denial decision for an APIKeyRequest. When a developer requests API access through an APIKeyRequest, an administrator or automated system can create an APIKeyApproval resource to approve or reject that request. This resource captures the decision, the reviewer's identity, the review timestamp, and optional reasoning for the decision.
+The APIKeyApproval CRD is part of the Developer Portal extension for Kuadrant. It represents the approval or denial decision for an APIKeyRequest. When a developer requests API access through an APIKeyRequest, an administrator or automated system can create an APIKeyApproval resource to approve or deny that request. This resource captures the decision, the reviewer's identity, the review timestamp, and optional reasoning for the decision.
 
 ## APIKeyApproval
 
@@ -78,19 +78,22 @@ spec:
 
 APIKeyApproval **must** reference an existing APIKeyRequest via `apiKeyRequestRef`. The APIKeyRequest represents a developer's request for API access and contains information about the requested APIProduct, plan tier, use case, and requester details.
 
-When an APIKeyApproval is created with `approved: true`, the controller processes the approval and updates the corresponding APIKey resource conditions, setting the `Approved` condition to `True`, which triggers the registration of the API key.
+When an APIKeyApproval is created with `approved: true`, the controller processes the approval and updates the corresponding APIKey resource conditions, setting the `Approved` condition to `True`, which allows the API key to be used for authentication.
 
-When an APIKeyApproval is created with `approved: false`, the controller updates the corresponding APIKey resource conditions, setting the `Denied` condition to `True`, and no secret registration occurs.
+When an APIKeyApproval is created with `approved: false`, the controller updates the corresponding APIKey resource conditions, setting the `Denied` condition to `True`, and the API key remains inactive.
 
 ### APIKey
 
-The APIKeyRequest references an APIKey resource, which is the shadow resource that manages the lifecycle of API access credentials. The APIKeyApproval indirectly affects the APIKey by approving or denying the request that the APIKey is based on, reflected through the APIKey's status conditions.
+APIKey is the primary resource that developers create to request API access. The APIKeyRequest is a shadow resource that represents the approval workflow for that APIKey. The APIKeyApproval indirectly affects the APIKey by approving or denying the associated APIKeyRequest, with the decision reflected through the APIKey's status conditions.
 
 ## Approval Workflow
 
-1. Developer creates an **APIKey** resource requesting access to an APIProduct
-2. Controller creates a corresponding **APIKeyRequest** shadow resource
-3. If the APIProduct has `approvalMode: manual`, an administrator creates an **APIKeyApproval** resource
-4. The controller processes the approval decision and updates the APIKey status conditions accordingly
-5. If approved (condition `Approved: True`), the API key from the developer's secret is registered for use
-6. If denied (condition `Denied: True`), the APIKey is marked as denied and the key is not registered
+1. Developer creates a Secret with their API key in their namespace
+2. Developer creates an **APIKey** resource requesting access to an APIProduct, referencing the secret
+3. Controller creates a corresponding **APIKeyRequest** shadow resource in the APIProduct's namespace
+4. Approval decision is made based on the APIProduct's `approvalMode`:
+   - **Automatic mode**: APIKey is automatically approved (no APIKeyApproval needed)
+   - **Manual mode**: An administrator creates an **APIKeyApproval** resource
+5. The controller processes the approval decision and updates the APIKey status conditions accordingly
+6. If approved (condition `Approved: True`), the API key from the developer's secret is activated for use
+7. If denied (condition `Denied: True`), the APIKey is marked as denied and remains inactive
