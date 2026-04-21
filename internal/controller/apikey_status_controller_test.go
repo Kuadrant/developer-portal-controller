@@ -825,5 +825,588 @@ var _ = Describe("APIKey Status Controller", func() {
 				return err == nil && updatedAPIKey.Status.APIHostname == ""
 			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
 		})
+
+		It("should transition from Failed to Approved state", func() {
+			controllerReconciler := &APIKeyStatusReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			By("Creating an APIKey that initially references a non-existent Secret")
+			transitionAPIKey := &devportalv1alpha1.APIKey{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "transition-failed-to-approved",
+					Namespace: consumerNamespace,
+				},
+				Spec: devportalv1alpha1.APIKeySpec{
+					APIProductRef: devportalv1alpha1.APIProductReference{
+						Name:      apiProductName,
+						Namespace: apiProductNamespace,
+					},
+					SecretRef: corev1.LocalObjectReference{
+						Name: "initially-missing-secret",
+					},
+					PlanTier: "premium",
+					UseCase:  "Testing transition",
+					RequestedBy: devportalv1alpha1.RequestedBy{
+						UserID: "test-user",
+						Email:  "test@example.com",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, transitionAPIKey)).To(Succeed())
+
+			By("Creating APIKeyRequest for the APIKey")
+			transitionRequest := &devportalv1alpha1.APIKeyRequest{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      APIKeyRequestName(transitionAPIKey),
+					Namespace: apiProductNamespace,
+				},
+				Spec: devportalv1alpha1.APIKeyRequestSpec{
+					APIProductRef: devportalv1alpha1.LocalAPIProductReference{
+						Name: apiProductName,
+					},
+					PlanTier: "premium",
+					UseCase:  "Testing transition",
+					RequestedBy: devportalv1alpha1.RequestedBy{
+						UserID: "test-user",
+						Email:  "test@example.com",
+					},
+					APIKeyRef: devportalv1alpha1.APIKeyReference{
+						Namespace: consumerNamespace,
+						Name:      "transition-failed-to-approved",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, transitionRequest)).To(Succeed())
+
+			By("Running reconciliation to set Failed condition")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying Failed condition is set")
+			updatedAPIKey := &devportalv1alpha1.APIKey{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "transition-failed-to-approved",
+					Namespace: consumerNamespace,
+				}, updatedAPIKey)
+				if err != nil {
+					return false
+				}
+				failedCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionFailed)
+				return failedCondition != nil && failedCondition.Status == metav1.ConditionTrue
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+
+			By("Creating the Secret to resolve the failure")
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "initially-missing-secret",
+					Namespace: consumerNamespace,
+				},
+				Data: map[string][]byte{
+					"api_key": []byte("test-api-key-value"),
+				},
+			}
+			Expect(k8sClient.Create(ctx, secret)).To(Succeed())
+
+			By("Creating an approval for the APIKey")
+			approval := &devportalv1alpha1.APIKeyApproval{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "transition-approval",
+					Namespace: apiProductNamespace,
+				},
+				Spec: devportalv1alpha1.APIKeyApprovalSpec{
+					APIKeyRequestRef: devportalv1alpha1.APIKeyRequestReference{
+						Name: APIKeyRequestName(transitionAPIKey),
+					},
+					Approved:   true,
+					ReviewedBy: "admin@example.com",
+					ReviewedAt: metav1.Now(),
+					Message:    "Approved after fixing issues",
+				},
+			}
+			Expect(k8sClient.Create(ctx, approval)).To(Succeed())
+
+			approval.Status.Conditions = []metav1.Condition{
+				{
+					Type:               devportalv1alpha1.APIKeyApprovalConditionValid,
+					Status:             metav1.ConditionTrue,
+					ObservedGeneration: approval.Generation,
+					Reason:             "Valid",
+					Message:            "Valid approval",
+					LastTransitionTime: metav1.Now(),
+				},
+			}
+			approval.Status.ObservedGeneration = approval.Generation
+			Expect(k8sClient.Status().Update(ctx, approval)).To(Succeed())
+
+			By("Running reconciliation to transition to Approved state")
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying Approved condition is set and Failed condition is removed")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "transition-failed-to-approved",
+					Namespace: consumerNamespace,
+				}, updatedAPIKey)
+				if err != nil {
+					return false
+				}
+				approvedCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionApproved)
+				failedCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionFailed)
+				return approvedCondition != nil &&
+					approvedCondition.Status == metav1.ConditionTrue &&
+					failedCondition == nil
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+		})
+
+		It("should transition to Failed state and clear other conditions", func() {
+			controllerReconciler := &APIKeyStatusReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			By("Creating a valid Secret")
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "secret-to-be-deleted",
+					Namespace: consumerNamespace,
+				},
+				Data: map[string][]byte{
+					"api_key": []byte("test-api-key-value"),
+				},
+			}
+			Expect(k8sClient.Create(ctx, secret)).To(Succeed())
+
+			By("Creating an APIKey with valid references")
+			transitionAPIKey := &devportalv1alpha1.APIKey{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "transition-to-failed",
+					Namespace: consumerNamespace,
+				},
+				Spec: devportalv1alpha1.APIKeySpec{
+					APIProductRef: devportalv1alpha1.APIProductReference{
+						Name:      apiProductName,
+						Namespace: apiProductNamespace,
+					},
+					SecretRef: corev1.LocalObjectReference{
+						Name: "secret-to-be-deleted",
+					},
+					PlanTier: "premium",
+					UseCase:  "Testing transition to failed",
+					RequestedBy: devportalv1alpha1.RequestedBy{
+						UserID: "test-user",
+						Email:  "test@example.com",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, transitionAPIKey)).To(Succeed())
+
+			By("Creating APIKeyRequest")
+			transitionRequest := &devportalv1alpha1.APIKeyRequest{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      APIKeyRequestName(transitionAPIKey),
+					Namespace: apiProductNamespace,
+				},
+				Spec: devportalv1alpha1.APIKeyRequestSpec{
+					APIProductRef: devportalv1alpha1.LocalAPIProductReference{
+						Name: apiProductName,
+					},
+					PlanTier: "premium",
+					UseCase:  "Testing transition to failed",
+					RequestedBy: devportalv1alpha1.RequestedBy{
+						UserID: "test-user",
+						Email:  "test@example.com",
+					},
+					APIKeyRef: devportalv1alpha1.APIKeyReference{
+						Namespace: consumerNamespace,
+						Name:      "transition-to-failed",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, transitionRequest)).To(Succeed())
+
+			By("Creating an approval")
+			approval := &devportalv1alpha1.APIKeyApproval{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "approval-before-failure",
+					Namespace: apiProductNamespace,
+				},
+				Spec: devportalv1alpha1.APIKeyApprovalSpec{
+					APIKeyRequestRef: devportalv1alpha1.APIKeyRequestReference{
+						Name: APIKeyRequestName(transitionAPIKey),
+					},
+					Approved:   true,
+					ReviewedBy: "admin@example.com",
+					ReviewedAt: metav1.Now(),
+					Message:    "Initially approved",
+				},
+			}
+			Expect(k8sClient.Create(ctx, approval)).To(Succeed())
+
+			approval.Status.Conditions = []metav1.Condition{
+				{
+					Type:               devportalv1alpha1.APIKeyApprovalConditionValid,
+					Status:             metav1.ConditionTrue,
+					ObservedGeneration: approval.Generation,
+					Reason:             "Valid",
+					Message:            "Valid approval",
+					LastTransitionTime: metav1.Now(),
+				},
+			}
+			approval.Status.ObservedGeneration = approval.Generation
+			Expect(k8sClient.Status().Update(ctx, approval)).To(Succeed())
+
+			By("Running reconciliation to set Approved condition")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying Approved condition is set")
+			updatedAPIKey := &devportalv1alpha1.APIKey{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "transition-to-failed",
+					Namespace: consumerNamespace,
+				}, updatedAPIKey)
+				if err != nil {
+					return false
+				}
+				approvedCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionApproved)
+				return approvedCondition != nil && approvedCondition.Status == metav1.ConditionTrue
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+
+			By("Deleting the Secret to trigger failure")
+			Expect(k8sClient.Delete(ctx, secret)).To(Succeed())
+
+			By("Running reconciliation to transition to Failed state")
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying Failed condition is set and Approved condition is removed")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "transition-to-failed",
+					Namespace: consumerNamespace,
+				}, updatedAPIKey)
+				if err != nil {
+					return false
+				}
+				failedCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionFailed)
+				approvedCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionApproved)
+				return failedCondition != nil &&
+					failedCondition.Status == metav1.ConditionTrue &&
+					approvedCondition == nil
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+		})
+
+		It("should transition to Denied state and clear other conditions", func() {
+			controllerReconciler := &APIKeyStatusReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			By("Creating a valid Secret")
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "secret-for-denied",
+					Namespace: consumerNamespace,
+				},
+				Data: map[string][]byte{
+					"api_key": []byte("test-api-key-value"),
+				},
+			}
+			Expect(k8sClient.Create(ctx, secret)).To(Succeed())
+
+			By("Creating an APIKey")
+			transitionAPIKey := &devportalv1alpha1.APIKey{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "transition-to-denied",
+					Namespace: consumerNamespace,
+				},
+				Spec: devportalv1alpha1.APIKeySpec{
+					APIProductRef: devportalv1alpha1.APIProductReference{
+						Name:      apiProductName,
+						Namespace: apiProductNamespace,
+					},
+					SecretRef: corev1.LocalObjectReference{
+						Name: "secret-for-denied",
+					},
+					PlanTier: "premium",
+					UseCase:  "Testing transition to denied",
+					RequestedBy: devportalv1alpha1.RequestedBy{
+						UserID: "test-user",
+						Email:  "test@example.com",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, transitionAPIKey)).To(Succeed())
+
+			By("Creating APIKeyRequest")
+			transitionRequest := &devportalv1alpha1.APIKeyRequest{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      APIKeyRequestName(transitionAPIKey),
+					Namespace: apiProductNamespace,
+				},
+				Spec: devportalv1alpha1.APIKeyRequestSpec{
+					APIProductRef: devportalv1alpha1.LocalAPIProductReference{
+						Name: apiProductName,
+					},
+					PlanTier: "premium",
+					UseCase:  "Testing transition to denied",
+					RequestedBy: devportalv1alpha1.RequestedBy{
+						UserID: "test-user",
+						Email:  "test@example.com",
+					},
+					APIKeyRef: devportalv1alpha1.APIKeyReference{
+						Namespace: consumerNamespace,
+						Name:      "transition-to-denied",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, transitionRequest)).To(Succeed())
+
+			By("Creating an initial approval")
+			approval := &devportalv1alpha1.APIKeyApproval{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "approval-before-denial",
+					Namespace: apiProductNamespace,
+				},
+				Spec: devportalv1alpha1.APIKeyApprovalSpec{
+					APIKeyRequestRef: devportalv1alpha1.APIKeyRequestReference{
+						Name: APIKeyRequestName(transitionAPIKey),
+					},
+					Approved:   true,
+					ReviewedBy: "admin@example.com",
+					ReviewedAt: metav1.Now(),
+					Message:    "Initially approved",
+				},
+			}
+			Expect(k8sClient.Create(ctx, approval)).To(Succeed())
+
+			approval.Status.Conditions = []metav1.Condition{
+				{
+					Type:               devportalv1alpha1.APIKeyApprovalConditionValid,
+					Status:             metav1.ConditionTrue,
+					ObservedGeneration: approval.Generation,
+					Reason:             "Valid",
+					Message:            "Valid approval",
+					LastTransitionTime: metav1.Now(),
+				},
+			}
+			approval.Status.ObservedGeneration = approval.Generation
+			Expect(k8sClient.Status().Update(ctx, approval)).To(Succeed())
+
+			By("Running reconciliation to set Approved condition")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying Approved condition is set")
+			updatedAPIKey := &devportalv1alpha1.APIKey{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "transition-to-denied",
+					Namespace: consumerNamespace,
+				}, updatedAPIKey)
+				if err != nil {
+					return false
+				}
+				approvedCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionApproved)
+				return approvedCondition != nil && approvedCondition.Status == metav1.ConditionTrue
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+
+			By("Deleting the approval and creating a denial")
+			Expect(k8sClient.Delete(ctx, approval)).To(Succeed())
+
+			denial := &devportalv1alpha1.APIKeyApproval{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "denial-decision",
+					Namespace: apiProductNamespace,
+				},
+				Spec: devportalv1alpha1.APIKeyApprovalSpec{
+					APIKeyRequestRef: devportalv1alpha1.APIKeyRequestReference{
+						Name: APIKeyRequestName(transitionAPIKey),
+					},
+					Approved:   false,
+					ReviewedBy: "admin@example.com",
+					ReviewedAt: metav1.Now(),
+					Reason:     "Policy violation",
+				},
+			}
+			Expect(k8sClient.Create(ctx, denial)).To(Succeed())
+
+			denial.Status.Conditions = []metav1.Condition{
+				{
+					Type:               devportalv1alpha1.APIKeyApprovalConditionValid,
+					Status:             metav1.ConditionTrue,
+					ObservedGeneration: denial.Generation,
+					Reason:             "Valid",
+					Message:            "Valid denial",
+					LastTransitionTime: metav1.Now(),
+				},
+			}
+			denial.Status.ObservedGeneration = denial.Generation
+			Expect(k8sClient.Status().Update(ctx, denial)).To(Succeed())
+
+			By("Running reconciliation to transition to Denied state")
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying Denied condition is set and Approved condition is removed")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "transition-to-denied",
+					Namespace: consumerNamespace,
+				}, updatedAPIKey)
+				if err != nil {
+					return false
+				}
+				deniedCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionDenied)
+				approvedCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionApproved)
+				return deniedCondition != nil &&
+					deniedCondition.Status == metav1.ConditionTrue &&
+					approvedCondition == nil
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+		})
+
+		It("should not update condition timestamp when state remains unchanged", func() {
+			controllerReconciler := &APIKeyStatusReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			By("Creating a valid Secret")
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "secret-stable-state",
+					Namespace: consumerNamespace,
+				},
+				Data: map[string][]byte{
+					"api_key": []byte("test-api-key-value"),
+				},
+			}
+			Expect(k8sClient.Create(ctx, secret)).To(Succeed())
+
+			By("Creating an APIKey")
+			stableAPIKey := &devportalv1alpha1.APIKey{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "stable-state-apikey",
+					Namespace: consumerNamespace,
+				},
+				Spec: devportalv1alpha1.APIKeySpec{
+					APIProductRef: devportalv1alpha1.APIProductReference{
+						Name:      apiProductName,
+						Namespace: apiProductNamespace,
+					},
+					SecretRef: corev1.LocalObjectReference{
+						Name: "secret-stable-state",
+					},
+					PlanTier: "premium",
+					UseCase:  "Testing stable state",
+					RequestedBy: devportalv1alpha1.RequestedBy{
+						UserID: "test-user",
+						Email:  "test@example.com",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, stableAPIKey)).To(Succeed())
+
+			By("Creating APIKeyRequest")
+			stableRequest := &devportalv1alpha1.APIKeyRequest{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      APIKeyRequestName(stableAPIKey),
+					Namespace: apiProductNamespace,
+				},
+				Spec: devportalv1alpha1.APIKeyRequestSpec{
+					APIProductRef: devportalv1alpha1.LocalAPIProductReference{
+						Name: apiProductName,
+					},
+					PlanTier: "premium",
+					UseCase:  "Testing stable state",
+					RequestedBy: devportalv1alpha1.RequestedBy{
+						UserID: "test-user",
+						Email:  "test@example.com",
+					},
+					APIKeyRef: devportalv1alpha1.APIKeyReference{
+						Namespace: consumerNamespace,
+						Name:      "stable-state-apikey",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, stableRequest)).To(Succeed())
+
+			By("Creating an approval")
+			approval := &devportalv1alpha1.APIKeyApproval{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "stable-approval",
+					Namespace: apiProductNamespace,
+				},
+				Spec: devportalv1alpha1.APIKeyApprovalSpec{
+					APIKeyRequestRef: devportalv1alpha1.APIKeyRequestReference{
+						Name: APIKeyRequestName(stableAPIKey),
+					},
+					Approved:   true,
+					ReviewedBy: "admin@example.com",
+					ReviewedAt: metav1.Now(),
+					Message:    "Approved",
+				},
+			}
+			Expect(k8sClient.Create(ctx, approval)).To(Succeed())
+
+			approval.Status.Conditions = []metav1.Condition{
+				{
+					Type:               devportalv1alpha1.APIKeyApprovalConditionValid,
+					Status:             metav1.ConditionTrue,
+					ObservedGeneration: approval.Generation,
+					Reason:             "Valid",
+					Message:            "Valid approval",
+					LastTransitionTime: metav1.Now(),
+				},
+			}
+			approval.Status.ObservedGeneration = approval.Generation
+			Expect(k8sClient.Status().Update(ctx, approval)).To(Succeed())
+
+			By("Running first reconciliation")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Getting the initial Approved condition timestamp")
+			updatedAPIKey := &devportalv1alpha1.APIKey{}
+			var initialTimestamp metav1.Time
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "stable-state-apikey",
+					Namespace: consumerNamespace,
+				}, updatedAPIKey)
+				if err != nil {
+					return false
+				}
+				approvedCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionApproved)
+				if approvedCondition != nil && approvedCondition.Status == metav1.ConditionTrue {
+					initialTimestamp = approvedCondition.LastTransitionTime
+					return true
+				}
+				return false
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+
+			By("Waiting a moment to ensure timestamps would differ if updated")
+			time.Sleep(time.Millisecond * 100)
+
+			By("Running second reconciliation without any changes")
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying the Approved condition timestamp has not changed")
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      "stable-state-apikey",
+				Namespace: consumerNamespace,
+			}, updatedAPIKey)).To(Succeed())
+
+			approvedCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionApproved)
+			Expect(approvedCondition).NotTo(BeNil())
+			Expect(approvedCondition.Status).To(Equal(metav1.ConditionTrue))
+			Expect(approvedCondition.LastTransitionTime).To(Equal(initialTimestamp))
+		})
 	})
 })

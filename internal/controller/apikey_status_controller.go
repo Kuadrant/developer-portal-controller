@@ -169,14 +169,7 @@ func (r *APIKeyStatusReconciler) calculateStatus(ctx context.Context, apiKey *de
 }
 
 func (r *APIKeyStatusReconciler) calculateStatusConditions(ctx context.Context, apiKey *devportalv1alpha1.APIKey) ([]metav1.Condition, error) {
-	// Clear all status condition types (Approved, Denied, Failed)
-	// We'll set at most one condition based on the current state
-	baseConditions := lo.Filter(apiKey.Status.Conditions, func(c metav1.Condition, _ int) bool {
-		return c.Type != devportalv1alpha1.APIKeyConditionApproved &&
-			c.Type != devportalv1alpha1.APIKeyConditionDenied &&
-			c.Type != devportalv1alpha1.APIKeyConditionFailed
-	})
-	conditions := slices.Clone(baseConditions)
+	conditions := slices.Clone(apiKey.Status.Conditions)
 
 	// Check Failed condition first - if failed, we're done
 	failedCondition, err := r.calculateFailedCondition(ctx, apiKey)
@@ -184,6 +177,9 @@ func (r *APIKeyStatusReconciler) calculateStatusConditions(ctx context.Context, 
 		return nil, err
 	}
 	if failedCondition != nil {
+		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionApproved)
+		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionDenied)
+		meta.SetStatusCondition(&conditions, *failedCondition)
 		meta.SetStatusCondition(&conditions, *failedCondition)
 		return conditions, nil
 	}
@@ -191,6 +187,8 @@ func (r *APIKeyStatusReconciler) calculateStatusConditions(ctx context.Context, 
 	// Check for Denied condition - if denied, we're done
 	deniedCondition := r.calculateDeniedCondition(ctx, apiKey)
 	if deniedCondition != nil {
+		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionApproved)
+		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionFailed)
 		meta.SetStatusCondition(&conditions, *deniedCondition)
 		return conditions, nil
 	}
@@ -198,6 +196,8 @@ func (r *APIKeyStatusReconciler) calculateStatusConditions(ctx context.Context, 
 	// Check for Approved condition - if approved, we're done
 	approvedCondition := r.calculateApprovedCondition(ctx, apiKey)
 	if approvedCondition != nil {
+		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionDenied)
+		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionFailed)
 		meta.SetStatusCondition(&conditions, *approvedCondition)
 		return conditions, nil
 	}

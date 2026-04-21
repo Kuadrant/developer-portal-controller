@@ -113,13 +113,9 @@ func (r *APIKeyApprovalStatusReconciler) reconcileStatus(ctx context.Context, ap
 func (r *APIKeyApprovalStatusReconciler) calculateStatus(ctx context.Context, approval *devportalv1alpha1.APIKeyApproval) *devportalv1alpha1.APIKeyApprovalStatus {
 	newStatus := &devportalv1alpha1.APIKeyApprovalStatus{
 		ObservedGeneration: approval.Generation,
+		// Copy initial conditions. Otherwise, status will always be updated
+		Conditions: slices.Clone(approval.Status.Conditions),
 	}
-
-	// Clear all status condition types (Valid)
-	baseConditions := lo.Filter(approval.Status.Conditions, func(c metav1.Condition, _ int) bool {
-		return c.Type != devportalv1alpha1.APIKeyApprovalConditionValid
-	})
-	newStatus.Conditions = slices.Clone(baseConditions)
 
 	// Calculate Valid condition
 	validCondition := r.calculateValidCondition(ctx, approval)
