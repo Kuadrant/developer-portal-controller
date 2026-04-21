@@ -92,11 +92,7 @@ func (r *APIKeyApprovalStatusReconciler) Reconcile(ctx context.Context, _ ctrl.R
 func (r *APIKeyApprovalStatusReconciler) reconcileStatus(ctx context.Context, approval *devportalv1alpha1.APIKeyApproval) error {
 	logger := logf.FromContext(ctx, "apikeyapproval", client.ObjectKeyFromObject(approval))
 
-	newStatus, err := r.calculateStatus(ctx, approval)
-	if err != nil {
-		return err
-	}
-
+	newStatus := r.calculateStatus(ctx, approval)
 	equalStatus := equality.Semantic.DeepEqual(newStatus, &approval.Status)
 	if equalStatus && approval.Generation == approval.Status.ObservedGeneration {
 		logger.V(1).Info("apikeyapproval status unchanged, skipping update")
@@ -114,7 +110,7 @@ func (r *APIKeyApprovalStatusReconciler) reconcileStatus(ctx context.Context, ap
 	return nil
 }
 
-func (r *APIKeyApprovalStatusReconciler) calculateStatus(ctx context.Context, approval *devportalv1alpha1.APIKeyApproval) (*devportalv1alpha1.APIKeyApprovalStatus, error) {
+func (r *APIKeyApprovalStatusReconciler) calculateStatus(ctx context.Context, approval *devportalv1alpha1.APIKeyApproval) *devportalv1alpha1.APIKeyApprovalStatus {
 	newStatus := &devportalv1alpha1.APIKeyApprovalStatus{
 		ObservedGeneration: approval.Generation,
 	}
@@ -126,18 +122,15 @@ func (r *APIKeyApprovalStatusReconciler) calculateStatus(ctx context.Context, ap
 	newStatus.Conditions = slices.Clone(baseConditions)
 
 	// Calculate Valid condition
-	validCondition, err := r.calculateValidCondition(ctx, approval)
-	if err != nil {
-		return nil, err
-	}
+	validCondition := r.calculateValidCondition(ctx, approval)
 	if validCondition != nil {
 		meta.SetStatusCondition(&newStatus.Conditions, *validCondition)
 	}
 
-	return newStatus, nil
+	return newStatus
 }
 
-func (r *APIKeyApprovalStatusReconciler) calculateValidCondition(ctx context.Context, approval *devportalv1alpha1.APIKeyApproval) (*metav1.Condition, error) {
+func (r *APIKeyApprovalStatusReconciler) calculateValidCondition(ctx context.Context, approval *devportalv1alpha1.APIKeyApproval) *metav1.Condition {
 	// Get APIKeyRequests from context
 	apiKeyRequests := GetAPIKeyRequests(ctx)
 	if apiKeyRequests == nil {
@@ -162,7 +155,7 @@ func (r *APIKeyApprovalStatusReconciler) calculateValidCondition(ctx context.Con
 			ObservedGeneration: approval.Generation,
 			Reason:             "APIKeyRequestNotFound",
 			Message:            fmt.Sprintf("Referenced APIKeyRequest %s/%s not found", approval.Namespace, approval.Spec.APIKeyRequestRef.Name),
-		}, nil
+		}
 	}
 
 	// Check if APIKeyRequest is being deleted
@@ -173,7 +166,7 @@ func (r *APIKeyApprovalStatusReconciler) calculateValidCondition(ctx context.Con
 			ObservedGeneration: approval.Generation,
 			Reason:             "APIKeyRequestDeleting",
 			Message:            fmt.Sprintf("Referenced APIKeyRequest %s/%s is being deleted", approval.Namespace, approval.Spec.APIKeyRequestRef.Name),
-		}, nil
+		}
 	}
 
 	// Valid - APIKeyRequest exists and is not being deleted
@@ -183,7 +176,7 @@ func (r *APIKeyApprovalStatusReconciler) calculateValidCondition(ctx context.Con
 		ObservedGeneration: approval.Generation,
 		Reason:             "Valid",
 		Message:            fmt.Sprintf("References existing APIKeyRequest %s/%s", approval.Namespace, approval.Spec.APIKeyRequestRef.Name),
-	}, nil
+	}
 }
 
 // SetupWithManager sets up the controller with the Manager.

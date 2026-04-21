@@ -189,20 +189,14 @@ func (r *APIKeyStatusReconciler) calculateStatusConditions(ctx context.Context, 
 	}
 
 	// Check for Denied condition - if denied, we're done
-	deniedCondition, err := r.calculateDeniedCondition(ctx, apiKey)
-	if err != nil {
-		return nil, err
-	}
+	deniedCondition := r.calculateDeniedCondition(ctx, apiKey)
 	if deniedCondition != nil {
 		meta.SetStatusCondition(&conditions, *deniedCondition)
 		return conditions, nil
 	}
 
 	// Check for Approved condition - if approved, we're done
-	approvedCondition, err := r.calculateApprovedCondition(ctx, apiKey)
-	if err != nil {
-		return nil, err
-	}
+	approvedCondition := r.calculateApprovedCondition(ctx, apiKey)
 	if approvedCondition != nil {
 		meta.SetStatusCondition(&conditions, *approvedCondition)
 		return conditions, nil
@@ -285,11 +279,8 @@ func (r *APIKeyStatusReconciler) calculateFailedCondition(ctx context.Context, a
 	return nil, nil
 }
 
-func (r *APIKeyStatusReconciler) calculateDeniedCondition(ctx context.Context, apiKey *devportalv1alpha1.APIKey) (*metav1.Condition, error) {
-	approval, err := r.findAPIKeyApproval(ctx, apiKey)
-	if err != nil {
-		return nil, err
-	}
+func (r *APIKeyStatusReconciler) calculateDeniedCondition(ctx context.Context, apiKey *devportalv1alpha1.APIKey) *metav1.Condition {
+	approval := r.findAPIKeyApproval(ctx, apiKey)
 
 	if approval != nil && !approval.Spec.Approved {
 		message := fmt.Sprintf("API key request denied by %s", approval.Spec.ReviewedBy)
@@ -302,17 +293,14 @@ func (r *APIKeyStatusReconciler) calculateDeniedCondition(ctx context.Context, a
 			ObservedGeneration: apiKey.Generation,
 			Reason:             "Denied",
 			Message:            message,
-		}, nil
+		}
 	}
 
-	return nil, nil
+	return nil
 }
 
-func (r *APIKeyStatusReconciler) calculateApprovedCondition(ctx context.Context, apiKey *devportalv1alpha1.APIKey) (*metav1.Condition, error) {
-	approval, err := r.findAPIKeyApproval(ctx, apiKey)
-	if err != nil {
-		return nil, err
-	}
+func (r *APIKeyStatusReconciler) calculateApprovedCondition(ctx context.Context, apiKey *devportalv1alpha1.APIKey) *metav1.Condition {
+	approval := r.findAPIKeyApproval(ctx, apiKey)
 
 	if approval != nil && approval.Spec.Approved {
 		message := fmt.Sprintf("API key request approved by %s", approval.Spec.ReviewedBy)
@@ -325,13 +313,13 @@ func (r *APIKeyStatusReconciler) calculateApprovedCondition(ctx context.Context,
 			ObservedGeneration: apiKey.Generation,
 			Reason:             "Approved",
 			Message:            message,
-		}, nil
+		}
 	}
 
-	return nil, nil
+	return nil
 }
 
-func (r *APIKeyStatusReconciler) findAPIKeyApproval(ctx context.Context, apiKey *devportalv1alpha1.APIKey) (*devportalv1alpha1.APIKeyApproval, error) {
+func (r *APIKeyStatusReconciler) findAPIKeyApproval(ctx context.Context, apiKey *devportalv1alpha1.APIKey) *devportalv1alpha1.APIKeyApproval {
 	logger := logf.FromContext(ctx)
 
 	// Determine the APIProduct namespace
@@ -362,11 +350,11 @@ func (r *APIKeyStatusReconciler) findAPIKeyApproval(ctx context.Context, apiKey 
 	for i := range validApprovals {
 		if validApprovals[i].Namespace == apiProductKey.Namespace &&
 			validApprovals[i].Spec.APIKeyRequestRef.Name == apiKeyRequestName {
-			return &validApprovals[i], nil
+			return &validApprovals[i]
 		}
 	}
 
-	return nil, nil
+	return nil
 }
 
 func getInvalidReason(validCondition *metav1.Condition) string {

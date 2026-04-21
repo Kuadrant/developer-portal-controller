@@ -198,8 +198,8 @@ func deleteAPIKeyApprovalsWithContext(ctx context.Context, namespace string) {
 	}, time.Second*5, time.Millisecond*500).Should(Succeed())
 }
 
-func deleteNamespaceWithContext(ctx context.Context, namespace *string) {
-	desiredTestNamespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: *namespace}}
+func deleteNamespaceWithContext(ctx context.Context, namespace string) {
+	desiredTestNamespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}
 
 	// Delete the namespace with background propagation
 	err := k8sClient.Delete(ctx, desiredTestNamespace, client.PropagationPolicy(metav1.DeletePropagationBackground))
@@ -211,7 +211,7 @@ func deleteNamespaceWithContext(ctx context.Context, namespace *string) {
 	// Note: envtest doesn't support full namespace deletion (see https://book.kubebuilder.io/reference/envtest.html#testing-considerations)
 	// so we only wait for deletion to start (DeletionTimestamp set), not complete
 	Eventually(func(g Gomega) {
-		err := k8sClient.Get(ctx, client.ObjectKey{Name: *namespace}, desiredTestNamespace)
+		err := k8sClient.Get(ctx, client.ObjectKey{Name: namespace}, desiredTestNamespace)
 		g.Expect(apierrors.IsNotFound(err) || desiredTestNamespace.DeletionTimestamp != nil).To(BeTrue())
 	}, time.Second*5, time.Millisecond*250).WithContext(ctx).Should(Succeed())
 }

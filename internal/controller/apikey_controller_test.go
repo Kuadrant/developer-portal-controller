@@ -53,7 +53,7 @@ var _ = Describe("APIKey Controller", Pending, func() {
 	})
 
 	AfterEach(func(ctx SpecContext) {
-		deleteNamespaceWithContext(ctx, &testNamespace)
+		deleteNamespaceWithContext(ctx, testNamespace)
 	}, nodeTimeOut)
 
 	Context("When reconciling an APIKey with automatic approval", func() {
@@ -137,8 +137,8 @@ var _ = Describe("APIKey Controller", Pending, func() {
 					return ""
 				}
 				// return apiKey.Status.Phase
-				return "Approved"
-			}, time.Second*10, time.Millisecond*250).Should(Equal("Approved"))
+				return devportalv1alpha1.APIKeyConditionApproved
+			}, time.Second*10, time.Millisecond*250).Should(Equal(devportalv1alpha1.APIKeyConditionApproved))
 
 			By("Verifying reviewedBy is set to system")
 			// Expect(apiKey.Status.ReviewedBy).To(Equal("system"))

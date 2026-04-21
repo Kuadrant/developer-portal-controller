@@ -50,8 +50,11 @@ var _ = Describe("APIKeyRequest Controller", func() {
 	})
 
 	AfterEach(func(ctx SpecContext) {
-		deleteNamespaceWithContext(ctx, &apiProductNamespace)
-		deleteNamespaceWithContext(ctx, &consumerNamespace)
+		deleteAPIKeysWithContext(ctx, consumerNamespace)
+		deleteAPIKeyRequestsWithContext(ctx, apiProductNamespace)
+		deleteAPIKeyApprovalsWithContext(ctx, apiProductNamespace)
+		deleteNamespaceWithContext(ctx, apiProductNamespace)
+		deleteNamespaceWithContext(ctx, consumerNamespace)
 	}, nodeTimeOut)
 
 	Context("When reconciling APIKey resources", func() {
@@ -86,12 +89,6 @@ var _ = Describe("APIKeyRequest Controller", func() {
 				},
 			}
 			Expect(k8sClient.Create(ctx, apiKey)).To(Succeed())
-		})
-
-		AfterEach(func(ctx SpecContext) {
-			By("Cleaning up APIKeys and APIKeyRequests")
-			deleteAPIKeysWithContext(ctx, consumerNamespace)
-			deleteAPIKeyRequestsWithContext(ctx, consumerNamespace)
 		})
 
 		It("should create shadow APIKeyRequest in APIProduct namespace", func() {

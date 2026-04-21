@@ -46,8 +46,11 @@ var _ = Describe("APIKeyApproval Controller", func() {
 	})
 
 	AfterEach(func(ctx SpecContext) {
-		deleteNamespaceWithContext(ctx, &apiProductNamespace)
-		deleteNamespaceWithContext(ctx, &consumerNamespace)
+		deleteAPIKeysWithContext(ctx, consumerNamespace)
+		deleteAPIKeyRequestsWithContext(ctx, apiProductNamespace)
+		deleteAPIKeyApprovalsWithContext(ctx, apiProductNamespace)
+		deleteNamespaceWithContext(ctx, apiProductNamespace)
+		deleteNamespaceWithContext(ctx, consumerNamespace)
 	}, nodeTimeOut)
 
 	Context("When reconciling APIKeyApproval resources", func() {
@@ -103,13 +106,6 @@ var _ = Describe("APIKeyApproval Controller", func() {
 				},
 			}
 			Expect(k8sClient.Create(ctx, apiKeyRequest)).To(Succeed())
-		})
-
-		AfterEach(func(ctx SpecContext) {
-			By("Cleaning up APIKeys, APIKeyRequests and APIKeyApprovals")
-			deleteAPIKeysWithContext(ctx, consumerNamespace)
-			deleteAPIKeyRequestsWithContext(ctx, apiProductNamespace)
-			deleteAPIKeyApprovalsWithContext(ctx, apiProductNamespace)
 		})
 
 		It("should set owner reference for automatic garbage collection", func() {

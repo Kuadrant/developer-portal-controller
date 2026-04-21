@@ -35,20 +35,28 @@ var _ = Describe("APIKeyApproval Status Controller", func() {
 		nodeTimeOut = NodeTimeout(time.Second * 30)
 	)
 	var (
-		apiProductNamespace string
-		consumerNamespace   string
-		apiKeyName          = "test-apikey"
-		apiProductName      = "test-api-product"
+		apiProductNamespace       string
+		secondAPIProductNamespace string
+		consumerNamespace         string
+		apiKeyName                = "test-apikey"
+		apiProductName            = "test-api-product"
 	)
 
 	BeforeEach(func(ctx SpecContext) {
 		createNamespaceWithContext(ctx, &apiProductNamespace)
 		createNamespaceWithContext(ctx, &consumerNamespace)
+		createNamespaceWithContext(ctx, &secondAPIProductNamespace)
 	})
 
 	AfterEach(func(ctx SpecContext) {
-		deleteNamespaceWithContext(ctx, &apiProductNamespace)
-		deleteNamespaceWithContext(ctx, &consumerNamespace)
+		deleteAPIKeysWithContext(ctx, consumerNamespace)
+		deleteAPIKeyRequestsWithContext(ctx, apiProductNamespace)
+		deleteAPIKeyApprovalsWithContext(ctx, apiProductNamespace)
+		deleteAPIKeyRequestsWithContext(ctx, secondAPIProductNamespace)
+		deleteAPIKeyApprovalsWithContext(ctx, secondAPIProductNamespace)
+		deleteNamespaceWithContext(ctx, apiProductNamespace)
+		deleteNamespaceWithContext(ctx, secondAPIProductNamespace)
+		deleteNamespaceWithContext(ctx, consumerNamespace)
 	}, nodeTimeOut)
 
 	Context("When reconciling APIKeyApproval resources", func() {
@@ -107,13 +115,6 @@ var _ = Describe("APIKeyApproval Status Controller", func() {
 				},
 			}
 			Expect(k8sClient.Create(ctx, apiKeyRequest)).To(Succeed())
-		})
-
-		AfterEach(func(ctx SpecContext) {
-			By("Cleaning up APIKeys, APIKeyRequests and APIKeyApprovals")
-			deleteAPIKeysWithContext(ctx, consumerNamespace)
-			deleteAPIKeyRequestsWithContext(ctx, apiProductNamespace)
-			deleteAPIKeyApprovalsWithContext(ctx, apiProductNamespace)
 		})
 
 		It("should set Valid=True when APIKeyRequest exists", func() {
@@ -423,11 +424,6 @@ var _ = Describe("APIKeyApproval Status Controller", func() {
 				Scheme: k8sClient.Scheme(),
 			}
 
-			By("Creating a second namespace for testing")
-			var secondNamespace string
-			createNamespaceWithContext(ctx, &secondNamespace)
-			defer deleteNamespaceWithContext(ctx, &secondNamespace)
-
 			By("Creating APIKeyApproval in first namespace (valid)")
 			approval1 := &devportalv1alpha1.APIKeyApproval{
 				ObjectMeta: metav1.ObjectMeta{
@@ -449,7 +445,7 @@ var _ = Describe("APIKeyApproval Status Controller", func() {
 			approval2 := &devportalv1alpha1.APIKeyApproval{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "multi-ns-approval-2",
-					Namespace: secondNamespace,
+					Namespace: secondAPIProductNamespace,
 				},
 				Spec: devportalv1alpha1.APIKeyApprovalSpec{
 					APIKeyRequestRef: devportalv1alpha1.APIKeyRequestReference{
@@ -485,7 +481,7 @@ var _ = Describe("APIKeyApproval Status Controller", func() {
 			Eventually(func() bool {
 				err := k8sClient.Get(ctx, types.NamespacedName{
 					Name:      "multi-ns-approval-2",
-					Namespace: secondNamespace,
+					Namespace: secondAPIProductNamespace,
 				}, updatedApproval2)
 				if err != nil {
 					return false

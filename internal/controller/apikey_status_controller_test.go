@@ -59,9 +59,13 @@ var _ = Describe("APIKey Status Controller", func() {
 	})
 
 	AfterEach(func(ctx SpecContext) {
-		deleteNamespaceWithContext(ctx, &apiProductNamespace)
-		deleteNamespaceWithContext(ctx, &consumerNamespace)
-		deleteNamespaceWithContext(ctx, &secondConsumerNs)
+		deleteAPIKeysWithContext(ctx, consumerNamespace)
+		deleteAPIKeysWithContext(ctx, secondConsumerNs)
+		deleteAPIKeyRequestsWithContext(ctx, apiProductNamespace)
+		deleteAPIKeyApprovalsWithContext(ctx, apiProductNamespace)
+		deleteNamespaceWithContext(ctx, apiProductNamespace)
+		deleteNamespaceWithContext(ctx, consumerNamespace)
+		deleteNamespaceWithContext(ctx, secondConsumerNs)
 	}, nodeTimeOut)
 
 	Context("When reconciling APIKey status", func() {
@@ -195,13 +199,6 @@ var _ = Describe("APIKey Status Controller", func() {
 				},
 			}
 			Expect(k8sClient.Create(ctx, apiKeyRequest)).To(Succeed())
-		})
-
-		AfterEach(func(ctx SpecContext) {
-			By("Cleaning up APIKeys, APIKeyRequests and APIKeyApprovals")
-			deleteAPIKeysWithContext(ctx, consumerNamespace)
-			deleteAPIKeyRequestsWithContext(ctx, apiProductNamespace)
-			deleteAPIKeyApprovalsWithContext(ctx, apiProductNamespace)
 		})
 
 		It("should set Failed condition when APIProduct does not exist", func() {
