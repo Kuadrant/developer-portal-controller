@@ -127,7 +127,10 @@ func (r *APIKeySecretReconciler) Reconcile(ctx context.Context, _ ctrl.Request) 
 		enforcementSecret.Name = enforcementSecretName(apiKey)
 		enforcementSecret.Namespace = kuadrantNamespace
 		reconcilers.TagObjectToDelete(enforcementSecret)
-		_, _ = r.ReconcileResource(ctx, &corev1.Secret{}, enforcementSecret, reconcilers.CreateOnlyMutator)
+		if _, err := r.ReconcileResource(ctx, &corev1.Secret{}, enforcementSecret, reconcilers.CreateOnlyMutator); err != nil {
+			logger.Error(err, "Failed to delete enforcement secret for deleting APIKey", "apiKey", client.ObjectKeyFromObject(apiKey))
+			return ctrl.Result{}, err
+		}
 	}
 
 	return ctrl.Result{}, nil
