@@ -18,6 +18,8 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/samber/lo"
@@ -191,7 +193,19 @@ func (r *APIKeySecretReconciler) desiredEnforcementSecret(ctx context.Context, a
 // Pattern: devportal-{apikey-namespace}-{apikey-name}
 // This prevents naming collisions when multiple APIKeys have the same name in different namespaces
 func enforcementSecretName(apiKey *devportalv1alpha1.APIKey) string {
-	return fmt.Sprintf("devportal-%s-%s", apiKey.Namespace, apiKey.Name)
+	// Create unique identifier from namespace and name
+	identifier := fmt.Sprintf("%s/%s", apiKey.Namespace, apiKey.Name)
+
+	// Generate hash suffix to prevent collisions between ambiguous namespace/name pairs
+	// e.g., "foo-bar/baz" vs "foo/bar-baz" would both produce "devportal-foo-bar-baz"
+	// without the hash suffix
+	hash := sha256.Sum256([]byte(identifier))
+	hashSuffix := hex.EncodeToString(hash[:])[:8] // Hex encoding produces [0-9a-f], all DNS-1123 valid
+
+	// DNS-1123 compliant: max length 146 chars (< 253 limit)
+	// - Namespace and name are already validated as DNS-1123 labels by Kubernetes
+	// - Hex suffix contains only lowercase alphanumeric [0-9a-f], guaranteed DNS-1123 compliant
+	return fmt.Sprintf("devportal-%s-%s-%s", apiKey.Namespace, apiKey.Name, hashSuffix)
 }
 
 // SetupWithManager sets up the controller with the Manager.

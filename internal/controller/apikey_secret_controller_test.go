@@ -709,4 +709,183 @@ var _ = Describe("APIKeySecret Controller", func() {
 			Expect(enforcementSecret1.Name).NotTo(Equal(enforcementSecret2.Name))
 		})
 	})
+
+	Context("Enforcement secret naming with ambiguous namespace/name pairs", func() {
+		var (
+			apiKey1  *devportalv1alpha1.APIKey
+			apiKey2  *devportalv1alpha1.APIKey
+			nsFooBar string
+			nsFoo    string
+		)
+
+		ctx := context.Background()
+
+		BeforeEach(func() {
+			nsFooBar = "foo-bar"
+			nsFoo = "foo"
+
+			By("Creating foo-bar namespace")
+			nsObject1 := &corev1.Namespace{
+				TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Namespace"},
+				ObjectMeta: metav1.ObjectMeta{Name: nsFooBar},
+			}
+			Expect(k8sClient.Create(ctx, nsObject1)).To(Succeed())
+
+			By("Creating foo namespace")
+			nsObject2 := &corev1.Namespace{
+				TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Namespace"},
+				ObjectMeta: metav1.ObjectMeta{Name: nsFoo},
+			}
+			Expect(k8sClient.Create(ctx, nsObject2)).To(Succeed())
+
+			By("Creating consumer secret in foo-bar namespace")
+			secret1 := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      secretName,
+					Namespace: nsFooBar,
+				},
+				Type: corev1.SecretTypeOpaque,
+				Data: map[string][]byte{
+					apiKeySecretKey: []byte("foo-bar-baz-key"),
+				},
+			}
+			Expect(k8sClient.Create(ctx, secret1)).To(Succeed())
+
+			By("Creating consumer secret in foo namespace")
+			secret2 := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      secretName,
+					Namespace: nsFoo,
+				},
+				Type: corev1.SecretTypeOpaque,
+				Data: map[string][]byte{
+					apiKeySecretKey: []byte("foo-bar-baz-key-2"),
+				},
+			}
+			Expect(k8sClient.Create(ctx, secret2)).To(Succeed())
+
+			By("Creating APIKey in foo-bar namespace with name baz")
+			apiKey1 = &devportalv1alpha1.APIKey{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "baz",
+					Namespace: nsFooBar,
+				},
+				Spec: devportalv1alpha1.APIKeySpec{
+					APIProductRef: devportalv1alpha1.APIProductReference{
+						Name:      apiProductName,
+						Namespace: nsFooBar,
+					},
+					SecretRef: corev1.LocalObjectReference{
+						Name: secretName,
+					},
+					PlanTier: "premium",
+					UseCase:  "Testing collision: foo-bar/baz",
+					RequestedBy: devportalv1alpha1.RequestedBy{
+						UserID: "collision-test-1",
+						Email:  "collision1@example.com",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, apiKey1)).To(Succeed())
+
+			By("Creating APIKey in foo namespace with name bar-baz")
+			apiKey2 = &devportalv1alpha1.APIKey{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "bar-baz",
+					Namespace: nsFoo,
+				},
+				Spec: devportalv1alpha1.APIKeySpec{
+					APIProductRef: devportalv1alpha1.APIProductReference{
+						Name:      apiProductName,
+						Namespace: nsFoo,
+					},
+					SecretRef: corev1.LocalObjectReference{
+						Name: secretName,
+					},
+					PlanTier: "premium",
+					UseCase:  "Testing collision: foo/bar-baz",
+					RequestedBy: devportalv1alpha1.RequestedBy{
+						UserID: "collision-test-2",
+						Email:  "collision2@example.com",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, apiKey2)).To(Succeed())
+
+			By("Setting Approved condition on both APIKeys")
+			apiKey1.Status.Conditions = []metav1.Condition{
+				{
+					Type:               devportalv1alpha1.APIKeyConditionApproved,
+					Status:             metav1.ConditionTrue,
+					ObservedGeneration: apiKey1.Generation,
+					LastTransitionTime: metav1.Now(),
+					Reason:             "Approved",
+					Message:            "API key approved",
+				},
+			}
+			Expect(k8sClient.Status().Update(ctx, apiKey1)).To(Succeed())
+
+			apiKey2.Status.Conditions = []metav1.Condition{
+				{
+					Type:               devportalv1alpha1.APIKeyConditionApproved,
+					Status:             metav1.ConditionTrue,
+					ObservedGeneration: apiKey2.Generation,
+					LastTransitionTime: metav1.Now(),
+					Reason:             "Approved",
+					Message:            "API key approved",
+				},
+			}
+			Expect(k8sClient.Status().Update(ctx, apiKey2)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			deleteAPIKeysWithContext(ctx, nsFooBar)
+			deleteAPIKeysWithContext(ctx, nsFoo)
+			deleteNamespaceWithContext(ctx, nsFooBar)
+			deleteNamespaceWithContext(ctx, nsFoo)
+		})
+
+		It("should create distinct enforcement secrets for colliding namespace/name pairs", func() {
+			controllerReconciler := &APIKeySecretReconciler{
+				BaseReconciler: reconcilers.BaseReconciler{
+					Client: k8sClient,
+					Scheme: k8sClient.Scheme(),
+				},
+			}
+
+			By("Running reconciliation")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Fetching enforcement secret for foo-bar/baz APIKey")
+			enforcementSecret1 := &corev1.Secret{}
+			enforcementSecretKey1 := types.NamespacedName{
+				Name:      enforcementSecretName(apiKey1),
+				Namespace: kuadrantNamespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, enforcementSecretKey1, enforcementSecret1)
+			}, time.Second*10, time.Millisecond*250).Should(Succeed())
+
+			By("Fetching enforcement secret for foo/bar-baz APIKey")
+			enforcementSecret2 := &corev1.Secret{}
+			enforcementSecretKey2 := types.NamespacedName{
+				Name:      enforcementSecretName(apiKey2),
+				Namespace: kuadrantNamespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, enforcementSecretKey2, enforcementSecret2)
+			}, time.Second*10, time.Millisecond*250).Should(Succeed())
+
+			By("Verifying enforcement secret names are distinct (EXPECTED TO FAIL with current implementation)")
+			Expect(enforcementSecret1.Name).NotTo(Equal(enforcementSecret2.Name),
+				"Enforcement secrets for distinct APIKeys (foo-bar/baz and foo/bar-baz) must have different names to avoid collisions")
+
+			By("Verifying each APIKey has its own secret data")
+			Expect(string(enforcementSecret1.Data[apiKeySecretKey])).To(Equal("foo-bar-baz-key"),
+				"foo-bar/baz should have its own secret data")
+			Expect(string(enforcementSecret2.Data[apiKeySecretKey])).To(Equal("foo-bar-baz-key-2"),
+				"foo/bar-baz should have its own secret data")
+		})
+	})
 })
