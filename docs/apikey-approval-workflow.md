@@ -164,7 +164,7 @@ status:
   apiKeyValue: "my-secure-api-key-12345"
   limits:
     daily: 100
-  apiHostName: ...
+  apiHostname: ...
   authScheme:
     # ... authentication configuration
 ```
