@@ -282,13 +282,25 @@ func (r *APIKeyStatusReconciler) calculateFailedCondition(ctx context.Context, a
 	}
 
 	// Check if the secret has the api_key entry
-	if _, ok := secret.Data[apiKeySecretKey]; !ok {
+	apiKeyValue, ok := secret.Data[apiKeySecretKey]
+	if !ok {
 		return &metav1.Condition{
 			Type:               devportalv1alpha1.APIKeyConditionFailed,
 			Status:             metav1.ConditionTrue,
 			ObservedGeneration: apiKey.Generation,
 			Reason:             "SecretAPIKeyNotFound",
 			Message:            fmt.Sprintf("Secret %s does not contain %q entry", secretKey, apiKeySecretKey),
+		}, nil
+	}
+
+	// Check if the api_key entry is not empty
+	if len(apiKeyValue) == 0 {
+		return &metav1.Condition{
+			Type:               devportalv1alpha1.APIKeyConditionFailed,
+			Status:             metav1.ConditionTrue,
+			ObservedGeneration: apiKey.Generation,
+			Reason:             "SecretAPIKeyEmpty",
+			Message:            fmt.Sprintf("Secret %s has empty %q entry", secretKey, apiKeySecretKey),
 		}, nil
 	}
 

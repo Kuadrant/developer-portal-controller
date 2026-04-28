@@ -175,6 +175,15 @@ func (r *APIKeySecretReconciler) desiredEnforcementSecret(ctx context.Context, a
 			consumerSecretKey, apiKeySecretKey, apiKey.Namespace, apiKey.Name)
 	}
 
+	// Check if the api_key entry is not empty
+	if len(apiKeyValue) == 0 {
+		// This should never happen for approved APIKeys - the status controller validates the api_key entry is not empty
+		// and sets Failed condition if empty. If we reach here, it indicates a race condition or
+		// the secret was modified after approval.
+		return nil, fmt.Errorf("consumer secret %s has empty '%s' entry for approved APIKey %s/%s - this indicates the secret was modified after approval or a race condition occurred",
+			consumerSecretKey, apiKeySecretKey, apiKey.Namespace, apiKey.Name)
+	}
+
 	secretLabels := map[string]string{
 		enforcementSecretLabelAPIProduct:          apiKey.Spec.APIProductRef.Name,
 		enforcementSecretLabelAPIProductNamespace: apiKey.Spec.APIProductRef.Namespace,
