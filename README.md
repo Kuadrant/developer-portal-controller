@@ -204,7 +204,7 @@ status:
 
   # Approval conditions
   # Lifecycle states:
-  #   - Pending: No conditions (initial state after creation)
+  #   - Pending: Pending condition with status "True" (initial state after creation)
   #   - Approved: Approved condition with status "True"
   #   - Denied: Denied condition with status "True"
   #   - Failed: Failed condition with status "True"
@@ -242,7 +242,7 @@ status:
 - `authScheme`: Authentication scheme from the AuthPolicy
 - `conditions`: Latest observations of the APIKey's state
   - Lifecycle states based on conditions:
-    - **Pending**: No approval/denial conditions (initial state)
+    - **Pending**: `Pending` condition with status `"True"` (awaiting approval)
     - **Approved**: `Approved` condition with status `"True"`
     - **Denied**: `Denied` condition with status `"True"`
     - **Failed**: `Failed` condition with status `"True"`
