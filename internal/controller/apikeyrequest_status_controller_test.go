@@ -156,7 +156,7 @@ var _ = Describe("APIKeyRequest Status Controller", func() {
 				readyCondition := meta.FindStatusCondition(apiKeyRequest.Status.Conditions, "Approved")
 				return readyCondition != nil &&
 					readyCondition.Status == metav1.ConditionTrue &&
-					readyCondition.Reason == apiKeyPhaseApproved
+					readyCondition.Reason == "Approved"
 			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
 		})
 

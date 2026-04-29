@@ -13,8 +13,6 @@ rules:
   - delete
   - get
   - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - devportal.kuadrant.io
@@ -41,7 +39,6 @@ rules:
   - devportal.kuadrant.io
   resources:
   - apikeyrequests
-  - apikeys
   - apiproducts
   verbs:
   - create
@@ -54,9 +51,11 @@ rules:
 - apiGroups:
   - devportal.kuadrant.io
   resources:
-  - apikeys/finalizers
+  - apikeys
   verbs:
-  - update
+  - get
+  - list
+  - watch
 - apiGroups:
   - extensions.kuadrant.io
   resources:
@@ -89,6 +88,7 @@ rules:
   - kuadrant.io
   resources:
   - authpolicies
+  - kuadrants
   verbs:
   - get
   - list

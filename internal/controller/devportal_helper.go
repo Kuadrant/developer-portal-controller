@@ -4,6 +4,11 @@ import (
 	"context"
 	"fmt"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
+	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
+
 	devportalv1alpha1 "github.com/kuadrant/developer-portal-controller/api/v1alpha1"
 )
 
@@ -55,4 +60,22 @@ func GetAPIKeyApprovals(ctx context.Context) *devportalv1alpha1.APIKeyApprovalLi
 // Pattern: {apiKeyNamespace}-{apiKeyName}
 func APIKeyRequestName(apiKey *devportalv1alpha1.APIKey) string {
 	return fmt.Sprintf("%s-%s", apiKey.Namespace, apiKey.Name)
+}
+
+// GetKuadrantNamespace finds the namespace where the Kuadrant CR exists
+// Returns the namespace name and true if found, empty string and false otherwise
+func GetKuadrantNamespace(ctx context.Context, k8sClient client.Client) (string, error) {
+	logger := logf.FromContext(ctx)
+	kuadrantList := &kuadrantv1beta1.KuadrantList{}
+	if err := k8sClient.List(ctx, kuadrantList); err != nil {
+		logger.Error(err, "cannot list kuadrant resources")
+		return "", err
+	}
+
+	if len(kuadrantList.Items) == 0 {
+		return "", nil
+	}
+
+	// Return the namespace of the first Kuadrant CR found
+	return kuadrantList.Items[0].Namespace, nil
 }

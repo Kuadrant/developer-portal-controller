@@ -20,9 +20,6 @@ import (
 	"context"
 	"time"
 
-	authorinov1beta3 "github.com/kuadrant/authorino/api/v1beta3"
-	kuadrantapiv1 "github.com/kuadrant/kuadrant-operator/api/v1"
-	planpolicyv1alpha1 "github.com/kuadrant/kuadrant-operator/cmd/extensions/plan-policy/api/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -35,6 +32,11 @@ import (
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gatewayapiv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 
+	authorinov1beta3 "github.com/kuadrant/authorino/api/v1beta3"
+	kuadrantapiv1 "github.com/kuadrant/kuadrant-operator/api/v1"
+	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
+	planpolicyv1alpha1 "github.com/kuadrant/kuadrant-operator/cmd/extensions/plan-policy/api/v1alpha1"
+
 	devportalv1alpha1 "github.com/kuadrant/developer-portal-controller/api/v1alpha1"
 )
 
@@ -46,6 +48,7 @@ var _ = Describe("APIKey Status Controller", func() {
 		apiProductNamespace string
 		consumerNamespace   string
 		secondConsumerNs    string
+		kuadrantNamespace   string
 		apiKeyName          = "test-apikey"
 		apiProductName      = "test-api-product"
 		httpRouteName       = "test-route"
@@ -53,6 +56,17 @@ var _ = Describe("APIKey Status Controller", func() {
 	)
 
 	BeforeEach(func(ctx SpecContext) {
+		createNamespaceWithContext(ctx, &kuadrantNamespace)
+		// Create Kuadrant CR in kuadrant namespace
+		kuadrant := &kuadrantv1beta1.Kuadrant{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "kuadrant",
+				Namespace: kuadrantNamespace,
+			},
+			Spec: kuadrantv1beta1.KuadrantSpec{},
+		}
+		Expect(k8sClient.Create(ctx, kuadrant)).To(Succeed())
+
 		createNamespaceWithContext(ctx, &apiProductNamespace)
 		createNamespaceWithContext(ctx, &consumerNamespace)
 		createNamespaceWithContext(ctx, &secondConsumerNs)
@@ -63,9 +77,11 @@ var _ = Describe("APIKey Status Controller", func() {
 		deleteAPIKeysWithContext(ctx, secondConsumerNs)
 		deleteAPIKeyRequestsWithContext(ctx, apiProductNamespace)
 		deleteAPIKeyApprovalsWithContext(ctx, apiProductNamespace)
+		deleteKuadrantsWithContext(ctx, kuadrantNamespace)
 		deleteNamespaceWithContext(ctx, apiProductNamespace)
 		deleteNamespaceWithContext(ctx, consumerNamespace)
 		deleteNamespaceWithContext(ctx, secondConsumerNs)
+		deleteNamespaceWithContext(ctx, kuadrantNamespace)
 	}, nodeTimeOut)
 
 	Context("When reconciling APIKey status", func() {
@@ -234,19 +250,17 @@ var _ = Describe("APIKey Status Controller", func() {
 
 			By("Verifying Failed condition is set")
 			updatedAPIKey := &devportalv1alpha1.APIKey{}
-			Eventually(func() bool {
+			Eventually(func(g Gomega) {
 				err := k8sClient.Get(ctx, types.NamespacedName{
 					Name:      "orphan-apikey",
 					Namespace: consumerNamespace,
 				}, updatedAPIKey)
-				if err != nil {
-					return false
-				}
+				g.Expect(err).NotTo(HaveOccurred())
 				failedCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionFailed)
-				return failedCondition != nil &&
-					failedCondition.Status == metav1.ConditionTrue &&
-					failedCondition.Reason == "APIProductNotFound"
-			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+				g.Expect(failedCondition).NotTo(BeNil())
+				g.Expect(failedCondition.Status).To(Equal(metav1.ConditionTrue))
+				g.Expect(failedCondition.Reason).To(Equal("APIProductNotFound"))
+			}, time.Second*10, time.Millisecond*250).Should(Succeed())
 		})
 
 		It("should set Failed condition when Secret does not exist", func() {
@@ -285,19 +299,51 @@ var _ = Describe("APIKey Status Controller", func() {
 
 			By("Verifying Failed condition is set with SecretNotFound reason")
 			updatedAPIKey := &devportalv1alpha1.APIKey{}
-			Eventually(func() bool {
+			Eventually(func(g Gomega) {
 				err := k8sClient.Get(ctx, types.NamespacedName{
 					Name:      "apikey-missing-secret",
 					Namespace: consumerNamespace,
 				}, updatedAPIKey)
-				if err != nil {
-					return false
-				}
+				g.Expect(err).NotTo(HaveOccurred())
 				failedCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionFailed)
-				return failedCondition != nil &&
-					failedCondition.Status == metav1.ConditionTrue &&
-					failedCondition.Reason == "SecretNotFound"
-			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+
+				g.Expect(failedCondition).NotTo(BeNil())
+				g.Expect(failedCondition.Status).To(Equal(metav1.ConditionTrue))
+				g.Expect(failedCondition.Reason).To(Equal("SecretNotFound"))
+			}, time.Second*10, time.Millisecond*250).Should(Succeed())
+		})
+
+		It("should set Pending condition when no approval exists", func() {
+			controllerReconciler := &APIKeyStatusReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			By("Running reconciliation")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying Pending condition is set")
+			updatedAPIKey := &devportalv1alpha1.APIKey{}
+			Eventually(func(g Gomega) {
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      apiKeyName,
+					Namespace: consumerNamespace,
+				}, updatedAPIKey)
+				g.Expect(err).NotTo(HaveOccurred())
+				pendingCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionPending)
+				g.Expect(pendingCondition).NotTo(BeNil())
+				g.Expect(pendingCondition.Status).To(Equal(metav1.ConditionTrue))
+				g.Expect(pendingCondition.Reason).To(Equal("AwaitingApproval"))
+
+				// No other conditions should be present
+				approvedCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionApproved)
+				g.Expect(approvedCondition).To(BeNil())
+				deniedCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionDenied)
+				g.Expect(deniedCondition).To(BeNil())
+				failedCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionFailed)
+				g.Expect(failedCondition).To(BeNil())
+			}, time.Second*10, time.Millisecond*250).Should(Succeed())
 		})
 
 		It("should set Failed condition when Secret does not have api_key entry", func() {
@@ -360,6 +406,82 @@ var _ = Describe("APIKey Status Controller", func() {
 				return failedCondition != nil &&
 					failedCondition.Status == metav1.ConditionTrue &&
 					failedCondition.Reason == "SecretAPIKeyNotFound"
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+		})
+
+		It("should transition from Pending to Approved when approval is granted", func() {
+			controllerReconciler := &APIKeyStatusReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			By("Running initial reconciliation to set Pending state")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying initial Pending condition")
+			updatedAPIKey := &devportalv1alpha1.APIKey{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      apiKeyName,
+					Namespace: consumerNamespace,
+				}, updatedAPIKey)
+				if err != nil {
+					return false
+				}
+				pendingCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionPending)
+				return pendingCondition != nil && pendingCondition.Status == metav1.ConditionTrue
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+
+			By("Creating an approval")
+			approval := &devportalv1alpha1.APIKeyApproval{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "transition-approval",
+					Namespace: apiProductNamespace,
+				},
+				Spec: devportalv1alpha1.APIKeyApprovalSpec{
+					APIKeyRequestRef: devportalv1alpha1.APIKeyRequestReference{
+						Name: APIKeyRequestName(apiKey),
+					},
+					Approved:   true,
+					ReviewedBy: "admin@example.com",
+					ReviewedAt: metav1.Now(),
+					Message:    "Approved",
+				},
+			}
+			Expect(k8sClient.Create(ctx, approval)).To(Succeed())
+
+			approval.Status.Conditions = []metav1.Condition{
+				{
+					Type:               devportalv1alpha1.APIKeyApprovalConditionValid,
+					Status:             metav1.ConditionTrue,
+					ObservedGeneration: approval.Generation,
+					Reason:             "Valid",
+					Message:            "Valid approval",
+					LastTransitionTime: metav1.Now(),
+				},
+			}
+			approval.Status.ObservedGeneration = approval.Generation
+			Expect(k8sClient.Status().Update(ctx, approval)).To(Succeed())
+
+			By("Running reconciliation after approval")
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying transition to Approved and Pending removed")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      apiKeyName,
+					Namespace: consumerNamespace,
+				}, updatedAPIKey)
+				if err != nil {
+					return false
+				}
+				approvedCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionApproved)
+				pendingCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionPending)
+				return approvedCondition != nil &&
+					approvedCondition.Status == metav1.ConditionTrue &&
+					pendingCondition == nil
 			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
 		})
 
@@ -532,20 +654,25 @@ var _ = Describe("APIKey Status Controller", func() {
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Verifying no approval/denial condition is set (pending state)")
+			By("Verifying Pending condition is set (invalid approval is ignored)")
 			updatedAPIKey := &devportalv1alpha1.APIKey{}
-			Consistently(func() bool {
+			Eventually(func(g Gomega) {
 				err := k8sClient.Get(ctx, types.NamespacedName{
 					Name:      apiKeyName,
 					Namespace: consumerNamespace,
 				}, updatedAPIKey)
-				if err != nil {
-					return false
-				}
+				g.Expect(err).NotTo(HaveOccurred())
+
+				pendingCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionPending)
+				g.Expect(pendingCondition).NotTo(BeNil())
+				g.Expect(pendingCondition.Status).To(Equal(metav1.ConditionTrue))
+				g.Expect(pendingCondition.Reason).To(Equal("AwaitingApproval"))
+
 				approvedCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionApproved)
+				g.Expect(approvedCondition).To(BeNil())
 				deniedCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionDenied)
-				return approvedCondition == nil && deniedCondition == nil
-			}, time.Second*2, time.Millisecond*250).Should(BeTrue())
+				g.Expect(deniedCondition).To(BeNil())
+			}, time.Second*10, time.Millisecond*250).Should(Succeed())
 		})
 
 		It("should populate APIHostname from HTTPRoute", func() {
@@ -1407,6 +1534,219 @@ var _ = Describe("APIKey Status Controller", func() {
 			Expect(approvedCondition).NotTo(BeNil())
 			Expect(approvedCondition.Status).To(Equal(metav1.ConditionTrue))
 			Expect(approvedCondition.LastTransitionTime).To(Equal(initialTimestamp))
+		})
+
+		It("should set Failed condition when APIProduct has no API key authentication scheme", func() {
+			controllerReconciler := &APIKeyStatusReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			By("Creating an APIProduct without API key authentication scheme")
+			noAuthProduct := &devportalv1alpha1.APIProduct{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "no-auth-product",
+					Namespace: apiProductNamespace,
+				},
+				Spec: devportalv1alpha1.APIProductSpec{
+					DisplayName:   "No Auth API",
+					ApprovalMode:  "manual",
+					PublishStatus: "Published",
+					TargetRef: gatewayapiv1alpha2.LocalPolicyTargetReference{
+						Group: gwapiv1.GroupName,
+						Kind:  "HTTPRoute",
+						Name:  gwapiv1.ObjectName(httpRouteName),
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, noAuthProduct)).To(Succeed())
+
+			By("Setting APIProduct status with discovered plans but without API key auth scheme")
+			Eventually(func() error {
+				if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(noAuthProduct), noAuthProduct); err != nil {
+					return err
+				}
+
+				basicLimit := 10
+				noAuthProduct.Status.DiscoveredPlans = []devportalv1alpha1.PlanSpec{
+					{
+						Tier: "basic",
+						Limits: planpolicyv1alpha1.Limits{
+							Daily: &basicLimit,
+						},
+					},
+				}
+				// Set DiscoveredAuthScheme with JWT authentication (no API key)
+				noAuthProduct.Status.DiscoveredAuthScheme = &kuadrantapiv1.AuthSchemeSpec{
+					Authentication: map[string]kuadrantapiv1.MergeableAuthenticationSpec{
+						"oidc": {
+							AuthenticationSpec: authorinov1beta3.AuthenticationSpec{
+								AuthenticationMethodSpec: authorinov1beta3.AuthenticationMethodSpec{
+									Jwt: &authorinov1beta3.JwtAuthenticationSpec{
+										IssuerUrl: "https://example.com",
+									},
+								},
+							},
+						},
+					},
+				}
+				return k8sClient.Status().Update(ctx, noAuthProduct)
+			}, time.Second*5, time.Millisecond*100).Should(Succeed())
+
+			By("Creating a Secret for the APIKey")
+			noAuthSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "no-auth-secret",
+					Namespace: consumerNamespace,
+				},
+				Data: map[string][]byte{
+					"api_key": []byte("test-api-key-value"),
+				},
+			}
+			Expect(k8sClient.Create(ctx, noAuthSecret)).To(Succeed())
+
+			By("Creating an APIKey that references the APIProduct without API key auth")
+			noAuthAPIKey := &devportalv1alpha1.APIKey{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "no-auth-apikey",
+					Namespace: consumerNamespace,
+				},
+				Spec: devportalv1alpha1.APIKeySpec{
+					APIProductRef: devportalv1alpha1.APIProductReference{
+						Name:      "no-auth-product",
+						Namespace: apiProductNamespace,
+					},
+					SecretRef: corev1.LocalObjectReference{
+						Name: "no-auth-secret",
+					},
+					PlanTier: "basic",
+					UseCase:  "Testing no auth scheme",
+					RequestedBy: devportalv1alpha1.RequestedBy{
+						UserID: "test-user",
+						Email:  "test@example.com",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, noAuthAPIKey)).To(Succeed())
+
+			By("Running reconciliation")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying Failed condition is set with APIKeyAuthSchemeNotFound reason")
+			updatedAPIKey := &devportalv1alpha1.APIKey{}
+			Eventually(func(g Gomega) {
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "no-auth-apikey",
+					Namespace: consumerNamespace,
+				}, updatedAPIKey)
+				g.Expect(err).NotTo(HaveOccurred())
+				failedCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionFailed)
+				g.Expect(failedCondition).NotTo(BeNil())
+				g.Expect(failedCondition.Status).To(Equal(metav1.ConditionTrue))
+				g.Expect(failedCondition.Reason).To(Equal("APIKeyAuthSchemeNotFound"))
+				g.Expect(failedCondition.Message).To(ContainSubstring("does not have an API key authentication scheme configured"))
+			}, time.Second*10, time.Millisecond*250).Should(Succeed())
+		})
+
+		It("should set Failed condition when APIProduct has no DiscoveredAuthScheme at all", func() {
+			controllerReconciler := &APIKeyStatusReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			By("Creating an APIProduct without any DiscoveredAuthScheme")
+			noSchemeProduct := &devportalv1alpha1.APIProduct{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "no-scheme-product",
+					Namespace: apiProductNamespace,
+				},
+				Spec: devportalv1alpha1.APIProductSpec{
+					DisplayName:   "No Scheme API",
+					ApprovalMode:  "manual",
+					PublishStatus: "Published",
+					TargetRef: gatewayapiv1alpha2.LocalPolicyTargetReference{
+						Group: gwapiv1.GroupName,
+						Kind:  "HTTPRoute",
+						Name:  gwapiv1.ObjectName(httpRouteName),
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, noSchemeProduct)).To(Succeed())
+
+			By("Setting APIProduct status with discovered plans but NO DiscoveredAuthScheme")
+			Eventually(func() error {
+				if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(noSchemeProduct), noSchemeProduct); err != nil {
+					return err
+				}
+
+				basicLimit := 10
+				noSchemeProduct.Status.DiscoveredPlans = []devportalv1alpha1.PlanSpec{
+					{
+						Tier: "basic",
+						Limits: planpolicyv1alpha1.Limits{
+							Daily: &basicLimit,
+						},
+					},
+				}
+				noSchemeProduct.Status.DiscoveredAuthScheme = nil
+				return k8sClient.Status().Update(ctx, noSchemeProduct)
+			}, time.Second*5, time.Millisecond*100).Should(Succeed())
+
+			By("Creating a Secret for the APIKey")
+			noSchemeSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "no-scheme-secret",
+					Namespace: consumerNamespace,
+				},
+				Data: map[string][]byte{
+					"api_key": []byte("test-api-key-value"),
+				},
+			}
+			Expect(k8sClient.Create(ctx, noSchemeSecret)).To(Succeed())
+
+			By("Creating an APIKey that references the APIProduct without DiscoveredAuthScheme")
+			noSchemeAPIKey := &devportalv1alpha1.APIKey{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "no-scheme-apikey",
+					Namespace: consumerNamespace,
+				},
+				Spec: devportalv1alpha1.APIKeySpec{
+					APIProductRef: devportalv1alpha1.APIProductReference{
+						Name:      "no-scheme-product",
+						Namespace: apiProductNamespace,
+					},
+					SecretRef: corev1.LocalObjectReference{
+						Name: "no-scheme-secret",
+					},
+					PlanTier: "basic",
+					UseCase:  "Testing no discovered auth scheme",
+					RequestedBy: devportalv1alpha1.RequestedBy{
+						UserID: "test-user",
+						Email:  "test@example.com",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, noSchemeAPIKey)).To(Succeed())
+
+			By("Running reconciliation")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying Failed condition is set with AuthSchemeNotFound reason")
+			updatedAPIKey := &devportalv1alpha1.APIKey{}
+			Eventually(func(g Gomega) {
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "no-scheme-apikey",
+					Namespace: consumerNamespace,
+				}, updatedAPIKey)
+				g.Expect(err).NotTo(HaveOccurred())
+				failedCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionFailed)
+				g.Expect(failedCondition).NotTo(BeNil())
+				g.Expect(failedCondition.Status).To(Equal(metav1.ConditionTrue))
+				g.Expect(failedCondition.Reason).To(Equal("AuthSchemeNotFound"))
+				g.Expect(failedCondition.Message).To(ContainSubstring("does not have a discovered authentication scheme"))
+			}, time.Second*10, time.Millisecond*250).Should(Succeed())
 		})
 	})
 })

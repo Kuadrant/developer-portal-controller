@@ -56,7 +56,7 @@ Standard Kubernetes condition type with the following fields:
 
 | **Field**            | **Type**  | **Description**                                                                   |
 |----------------------|-----------|-----------------------------------------------------------------------------------|
-| `type`               | String    | Condition type. Valid types: `Approved`, `Denied`, `Failed`                       |
+| `type`               | String    | Condition type. Valid types: `Pending`, `Approved`, `Denied`, `Failed`            |
 | `status`             | String    | Status of the condition: `True`, `False`, or `Unknown`                            |
 | `reason`             | String    | Unique, one-word, CamelCase reason for the condition's last transition            |
 | `message`            | String    | Human-readable message indicating details about the transition                    |

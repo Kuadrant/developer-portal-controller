@@ -20,6 +20,7 @@ import (
 	authorinov1beta3 "github.com/kuadrant/authorino/api/v1beta3"
 	planpolicyv1alpha1 "github.com/kuadrant/kuadrant-operator/cmd/extensions/plan-policy/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -34,6 +35,9 @@ const (
 
 	// APIKeyConditionFailed indicates the APIKey processing has failed
 	APIKeyConditionFailed string = "Failed"
+
+	// APIKeyConditionPending indicates the APIKey is waiting for approval
+	APIKeyConditionPending string = "Pending"
 )
 
 type APIProductReference struct {
@@ -139,6 +143,15 @@ func (a *APIKey) APIProductKey() client.ObjectKey {
 		Name:      a.Spec.APIProductRef.Name,
 		Namespace: apiProductNamespace,
 	}
+}
+
+func (a *APIKey) IsApproved() bool {
+	if a == nil {
+		return false
+	}
+
+	approvedCondition := meta.FindStatusCondition(a.Status.Conditions, APIKeyConditionApproved)
+	return approvedCondition != nil && approvedCondition.Status == metav1.ConditionTrue
 }
 
 // +kubebuilder:object:root=true

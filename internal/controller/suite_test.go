@@ -42,6 +42,7 @@ import (
 	gatewayapiv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 
 	kuadrantapiv1 "github.com/kuadrant/kuadrant-operator/api/v1"
+	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
 	planpolicyv1alpha1 "github.com/kuadrant/kuadrant-operator/cmd/extensions/plan-policy/api/v1alpha1"
 
 	devportalv1alpha1 "github.com/kuadrant/developer-portal-controller/api/v1alpha1"
@@ -76,6 +77,8 @@ var _ = BeforeSuite(func() {
 	err = planpolicyv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 	err = kuadrantapiv1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+	err = kuadrantv1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 	err = gwapiv1.Install(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
@@ -195,6 +198,23 @@ func deleteAPIKeyApprovalsWithContext(ctx context.Context, namespace string) {
 		apiKeyApprovalList := &devportalv1alpha1.APIKeyApprovalList{}
 		_ = k8sClient.List(ctx, apiKeyApprovalList, client.InNamespace(namespace))
 		g.Expect(apiKeyApprovalList.Items).To(BeEmpty())
+	}, time.Second*5, time.Millisecond*500).Should(Succeed())
+}
+
+func deleteKuadrantsWithContext(ctx context.Context, namespace string) {
+	// Delete all APIKeys in consumer namespace
+	kList := &kuadrantv1beta1.KuadrantList{}
+	err := k8sClient.List(ctx, kList, client.InNamespace(namespace))
+	if err == nil {
+		for i := range kList.Items {
+			_ = k8sClient.Delete(ctx, &kList.Items[i])
+		}
+	}
+	// Wait for resources to be deleted
+	Eventually(func(g Gomega) {
+		kList := &kuadrantv1beta1.KuadrantList{}
+		_ = k8sClient.List(ctx, kList, client.InNamespace(namespace))
+		g.Expect(kList.Items).To(BeEmpty())
 	}, time.Second*5, time.Millisecond*500).Should(Succeed())
 }
 

@@ -208,7 +208,9 @@ undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.
 	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
 .PHONY: local-deploy
-local-deploy: ## Deploy Kuadrant Operator from the current code
+local-deploy: ## Deploy Developer Portal controller from the current code
+	@echo ""
+	@echo "Deploy Developer Portal controller from the current code..."
 	$(MAKE) docker-build IMG=$(IMAGE_TAG_BASE):dev
 	$(MAKE) kind-load-image IMG=$(IMAGE_TAG_BASE):dev
 	$(MAKE) deploy IMG=$(IMAGE_TAG_BASE):dev

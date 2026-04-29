@@ -55,6 +55,7 @@ type APIKeyStatusReconciler struct {
 // +kubebuilder:rbac:groups=devportal.kuadrant.io,resources=apikeyrequests,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kuadrant.io,resources=kuadrants,verbs=get;list;watch
 
 // Reconcile handles reconciling all resources in a single call. Any resource event should enqueue the
 // same reconcile.Request containing this controller name, i.e. "apikey-status". This allows multiple resource updates to
@@ -164,7 +165,6 @@ func (r *APIKeyStatusReconciler) calculateStatus(ctx context.Context, apiKey *de
 	}
 	newStatus.APIHostname = apiHostName
 
-	// No active condition - pending state (empty conditions)
 	return newStatus, nil
 }
 
@@ -179,7 +179,7 @@ func (r *APIKeyStatusReconciler) calculateStatusConditions(ctx context.Context, 
 	if failedCondition != nil {
 		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionApproved)
 		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionDenied)
-		meta.SetStatusCondition(&conditions, *failedCondition)
+		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionPending)
 		meta.SetStatusCondition(&conditions, *failedCondition)
 		return conditions, nil
 	}
@@ -189,6 +189,7 @@ func (r *APIKeyStatusReconciler) calculateStatusConditions(ctx context.Context, 
 	if deniedCondition != nil {
 		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionApproved)
 		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionFailed)
+		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionPending)
 		meta.SetStatusCondition(&conditions, *deniedCondition)
 		return conditions, nil
 	}
@@ -198,7 +199,18 @@ func (r *APIKeyStatusReconciler) calculateStatusConditions(ctx context.Context, 
 	if approvedCondition != nil {
 		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionDenied)
 		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionFailed)
+		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionPending)
 		meta.SetStatusCondition(&conditions, *approvedCondition)
+		return conditions, nil
+	}
+
+	// Check for Pending condition - if no approval, denial, or failure
+	pendingCondition := r.calculatePendingCondition(ctx, apiKey)
+	if pendingCondition != nil {
+		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionApproved)
+		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionDenied)
+		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionFailed)
+		meta.SetStatusCondition(&conditions, *pendingCondition)
 		return conditions, nil
 	}
 
@@ -206,11 +218,27 @@ func (r *APIKeyStatusReconciler) calculateStatusConditions(ctx context.Context, 
 }
 
 func (r *APIKeyStatusReconciler) calculateFailedCondition(ctx context.Context, apiKey *devportalv1alpha1.APIKey) (*metav1.Condition, error) {
+	// Check if Kuadrant CR exists
+	kNs, err := GetKuadrantNamespace(ctx, r.Client)
+	if err != nil {
+		return nil, err
+	}
+
+	if kNs == "" {
+		return &metav1.Condition{
+			Type:               devportalv1alpha1.APIKeyConditionFailed,
+			Status:             metav1.ConditionTrue,
+			ObservedGeneration: apiKey.Generation,
+			Reason:             "KuadrantNotFound",
+			Message:            "Kuadrant CR not found in cluster",
+		}, nil
+	}
+
 	// Check if the referenced APIProduct exists
 	apiProduct := &devportalv1alpha1.APIProduct{}
 	apiProductKey := apiKey.APIProductKey()
 
-	err := r.Get(ctx, apiProductKey, apiProduct)
+	err = r.Get(ctx, apiProductKey, apiProduct)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			return &metav1.Condition{
@@ -265,13 +293,51 @@ func (r *APIKeyStatusReconciler) calculateFailedCondition(ctx context.Context, a
 	}
 
 	// Check if the secret has the api_key entry
-	if _, ok := secret.Data[apiKeySecretKey]; !ok {
+	apiKeyValue, ok := secret.Data[apiKeySecretKey]
+	if !ok {
 		return &metav1.Condition{
 			Type:               devportalv1alpha1.APIKeyConditionFailed,
 			Status:             metav1.ConditionTrue,
 			ObservedGeneration: apiKey.Generation,
 			Reason:             "SecretAPIKeyNotFound",
 			Message:            fmt.Sprintf("Secret %s does not contain %q entry", secretKey, apiKeySecretKey),
+		}, nil
+	}
+
+	// Check if the api_key entry is not empty
+	if len(apiKeyValue) == 0 {
+		return &metav1.Condition{
+			Type:               devportalv1alpha1.APIKeyConditionFailed,
+			Status:             metav1.ConditionTrue,
+			ObservedGeneration: apiKey.Generation,
+			Reason:             "SecretAPIKeyEmpty",
+			Message:            fmt.Sprintf("Secret %s has empty %q entry", secretKey, apiKeySecretKey),
+		}, nil
+	}
+
+	// Check if the APIProduct has API key authentication scheme
+	if apiProduct.Status.DiscoveredAuthScheme == nil {
+		return &metav1.Condition{
+			Type:               devportalv1alpha1.APIKeyConditionFailed,
+			Status:             metav1.ConditionTrue,
+			ObservedGeneration: apiKey.Generation,
+			Reason:             "AuthSchemeNotFound",
+			Message:            fmt.Sprintf("APIProduct %s does not have a discovered authentication scheme", apiProductKey),
+		}, nil
+	}
+
+	// Check if the APIProduct has API key authentication method
+	apiKeyAuthMethods := lo.FilterValues(apiProduct.Status.DiscoveredAuthScheme.Authentication, func(k string, v kuadrantapiv1.MergeableAuthenticationSpec) bool {
+		return v.GetMethod() == authorinov1beta3.ApiKeyAuthentication
+	})
+
+	if len(apiKeyAuthMethods) == 0 {
+		return &metav1.Condition{
+			Type:               devportalv1alpha1.APIKeyConditionFailed,
+			Status:             metav1.ConditionTrue,
+			ObservedGeneration: apiKey.Generation,
+			Reason:             "APIKeyAuthSchemeNotFound",
+			Message:            fmt.Sprintf("APIProduct %s does not have an API key authentication scheme configured", apiProductKey),
 		}, nil
 	}
 
@@ -313,6 +379,23 @@ func (r *APIKeyStatusReconciler) calculateApprovedCondition(ctx context.Context,
 			ObservedGeneration: apiKey.Generation,
 			Reason:             "Approved",
 			Message:            message,
+		}
+	}
+
+	return nil
+}
+
+func (r *APIKeyStatusReconciler) calculatePendingCondition(ctx context.Context, apiKey *devportalv1alpha1.APIKey) *metav1.Condition {
+	// If there's no approval (either approved or denied), the APIKey is pending
+	approval := r.findAPIKeyApproval(ctx, apiKey)
+
+	if approval == nil {
+		return &metav1.Condition{
+			Type:               devportalv1alpha1.APIKeyConditionPending,
+			Status:             metav1.ConditionTrue,
+			ObservedGeneration: apiKey.Generation,
+			Reason:             "AwaitingApproval",
+			Message:            "API key request is awaiting approval",
 		}
 	}
 
