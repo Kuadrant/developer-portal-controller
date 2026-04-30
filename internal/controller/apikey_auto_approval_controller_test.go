@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gatewayapiv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
@@ -454,6 +455,129 @@ var _ = Describe("APIKeyAutoApproval Controller", func() {
 			approvalList := &devportalv1alpha1.APIKeyApprovalList{}
 			Expect(k8sClient.List(ctx, approvalList)).To(Succeed())
 			Expect(approvalList.Items).To(BeEmpty(), "Should not create approval for product being deleted")
+		})
+	})
+
+	Context("When APIKeyApproval already exists for the request", func() {
+		var (
+			apiProduct     *devportalv1alpha1.APIProduct
+			apiKeyRequest  *devportalv1alpha1.APIKeyRequest
+			manualApproval *devportalv1alpha1.APIKeyApproval
+		)
+
+		ctx := context.Background()
+
+		BeforeEach(func() {
+			By("Creating an APIProduct with automatic approval mode")
+			apiProduct = &devportalv1alpha1.APIProduct{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      apiProductName,
+					Namespace: apiProductNamespace,
+				},
+				Spec: devportalv1alpha1.APIProductSpec{
+					DisplayName:  "Test API",
+					ApprovalMode: "automatic",
+					TargetRef: gatewayapiv1alpha2.LocalPolicyTargetReference{
+						Group: gwapiv1.GroupName,
+						Kind:  "HTTPRoute",
+						Name:  "test-route",
+					},
+					PublishStatus: "Draft",
+				},
+			}
+			Expect(k8sClient.Create(ctx, apiProduct)).To(Succeed())
+
+			By("Creating an APIKeyRequest in pending state")
+			apiKeyRequest = &devportalv1alpha1.APIKeyRequest{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      apiProductNamespace + "-" + apiKeyName,
+					Namespace: apiProductNamespace,
+				},
+				Spec: devportalv1alpha1.APIKeyRequestSpec{
+					APIProductRef: devportalv1alpha1.LocalAPIProductReference{
+						Name: apiProductName,
+					},
+					PlanTier: "premium",
+					UseCase:  "Testing existing approval",
+					RequestedBy: devportalv1alpha1.RequestedBy{
+						UserID: "test-user",
+						Email:  "test@example.com",
+					},
+					APIKeyRef: devportalv1alpha1.APIKeyReference{
+						Name:      apiKeyName,
+						Namespace: consumerNamespace,
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, apiKeyRequest)).To(Succeed())
+
+			By("Setting the APIKeyRequest status to Pending")
+			updatedRequest := &devportalv1alpha1.APIKeyRequest{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      apiKeyRequest.Name,
+				Namespace: apiProductNamespace,
+			}, updatedRequest)).To(Succeed())
+
+			meta.SetStatusCondition(&updatedRequest.Status.Conditions, metav1.Condition{
+				Type:               devportalv1alpha1.APIKeyConditionPending,
+				Status:             metav1.ConditionTrue,
+				Reason:             "Pending",
+				Message:            "Awaiting approval",
+				ObservedGeneration: updatedRequest.Generation,
+			})
+			Expect(k8sClient.Status().Update(ctx, updatedRequest)).To(Succeed())
+
+			By("Creating a manual APIKeyApproval for this request")
+			manualApproval = &devportalv1alpha1.APIKeyApproval{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      apiKeyRequest.Name + "-manual",
+					Namespace: apiProductNamespace,
+				},
+				Spec: devportalv1alpha1.APIKeyApprovalSpec{
+					APIKeyRequestRef: devportalv1alpha1.APIKeyRequestReference{
+						Name: apiKeyRequest.Name,
+					},
+					Approved:   true,
+					ReviewedBy: "admin@example.com",
+					ReviewedAt: metav1.Now(),
+					Reason:     "ManuallyApproved",
+					Message:    "Manually approved by admin",
+				},
+			}
+			Expect(k8sClient.Create(ctx, manualApproval)).To(Succeed())
+		})
+
+		It("should not create automatic approval when manual approval exists", func() {
+			controllerReconciler := &APIKeyAutoApprovalReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			requestKey := types.NamespacedName{
+				Name:      apiKeyRequest.Name,
+				Namespace: apiProductNamespace,
+			}
+
+			By("Waiting for APIKeyRequest status to be set")
+			Eventually(func() bool {
+				fetchedRequest := &devportalv1alpha1.APIKeyRequest{}
+				if err := k8sClient.Get(ctx, requestKey, fetchedRequest); err != nil {
+					return false
+				}
+				pendingCondition := meta.FindStatusCondition(fetchedRequest.Status.Conditions, devportalv1alpha1.APIKeyConditionPending)
+				return pendingCondition != nil && pendingCondition.Status == metav1.ConditionTrue
+			}, time.Second*5, time.Millisecond*250).Should(BeTrue(), "APIKeyRequest should have Pending condition set")
+
+			By("Running reconciliation")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: requestKey})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying only the manual approval exists (no automatic approval created)")
+			approvalList := &devportalv1alpha1.APIKeyApprovalList{}
+			Expect(k8sClient.List(ctx, approvalList, client.InNamespace(apiProductNamespace))).To(Succeed())
+			Expect(approvalList.Items).To(HaveLen(1), "Should have exactly one approval")
+			Expect(approvalList.Items[0].Name).To(Equal(manualApproval.Name), "Should be the manual approval")
+			Expect(approvalList.Items[0].Spec.ReviewedBy).To(Equal("admin@example.com"), "Should be manually approved")
 		})
 	})
 })

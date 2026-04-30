@@ -98,6 +98,21 @@ func (r *APIKeyAutoApprovalReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, nil
 	}
 
+	// 5. Check if any APIKeyApproval already exists for this request
+	// Address race conditions when apikey is still pending but an apikeyapproval resource already exists.
+	approvalList := &devportalv1alpha1.APIKeyApprovalList{}
+	if err := r.List(ctx, approvalList, client.InNamespace(apiKeyRequest.Namespace)); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	for _, approval := range approvalList.Items {
+		if approval.Spec.APIKeyRequestRef.Name == apiKeyRequest.Name {
+			logger.V(1).Info("APIKeyApproval already exists for this request, skipping auto-approval",
+				"approval", approval.Name)
+			return ctrl.Result{}, nil
+		}
+	}
+
 	// 6. Create auto-approval
 	approval := &devportalv1alpha1.APIKeyApproval{
 		ObjectMeta: metav1.ObjectMeta{

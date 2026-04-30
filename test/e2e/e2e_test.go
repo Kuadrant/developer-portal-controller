@@ -39,12 +39,19 @@ const serviceAccountName = "developer-portal-controller-controller-manager"
 // metricsServiceName is the name of the metrics service of the project
 const metricsServiceName = "developer-portal-controller-controller-manager-metrics-service"
 
+// metricsRoleBindingName is the name of the RBAC that will be created to allow get the metrics data
+const metricsRoleBindingName = "developer-portal-controller-metrics-binding"
+
 var _ = Describe("Manager", Ordered, func() {
 	var controllerPodName string
 
 	AfterAll(func() {
 		By("cleaning up the curl pod for metrics")
 		cmd := exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace)
+		_, _ = utils.Run(cmd)
+
+		By("cleaning up the ClusterRoleBinding for metrics")
+		cmd = exec.Command("kubectl", "delete", "clusterrolebinding", metricsRoleBindingName)
 		_, _ = utils.Run(cmd)
 	})
 
@@ -128,9 +135,22 @@ var _ = Describe("Manager", Ordered, func() {
 		})
 
 		It("should ensure the metrics endpoint is serving metrics", func() {
-			By("validating that the metrics service is available")
-			cmd := exec.Command("kubectl", "get", "service", metricsServiceName, "-n", namespace)
+			By("creating a ClusterRoleBinding for the service account to allow access to metrics")
+			cmd := exec.Command("kubectl", "get", "clusterrolebinding", metricsRoleBindingName)
 			_, err := utils.Run(cmd)
+			if err != nil {
+				// ClusterRoleBinding doesn't exist, create it
+				cmd = exec.Command("kubectl", "create", "clusterrolebinding", metricsRoleBindingName,
+					"--clusterrole=developer-portal-controller-metrics-reader",
+					fmt.Sprintf("--serviceaccount=%s:%s", namespace, serviceAccountName),
+				)
+				_, err = utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred(), "Failed to create ClusterRoleBinding")
+			}
+
+			By("validating that the metrics service is available")
+			cmd = exec.Command("kubectl", "get", "service", metricsServiceName, "-n", namespace)
+			_, err = utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred(), "Metrics service should exist")
 
 			By("getting the service account token")
