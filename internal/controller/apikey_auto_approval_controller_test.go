@@ -296,7 +296,7 @@ var _ = Describe("APIKeyAutoApproval Controller", func() {
 
 			By("Verifying no approval was created")
 			approvalList := &devportalv1alpha1.APIKeyApprovalList{}
-			Expect(k8sClient.List(ctx, approvalList)).To(Succeed())
+			Expect(k8sClient.List(ctx, approvalList, client.InNamespace(apiProductNamespace))).To(Succeed())
 			Expect(approvalList.Items).To(BeEmpty(), "Should not create approval for manual mode")
 		})
 	})

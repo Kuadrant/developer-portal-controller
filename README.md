@@ -468,12 +468,11 @@ The Developer Portal Controller implements a namespace-based RBAC model with thr
 4. **Controller (Automatic)**
    - Processes the `APIKeyApproval` decision
    - Updates the consumer's `APIKey` conditions (Approved/Denied)
-   - If approved: Creates the API key secret in the kuadrant namespace
-   - Projects the API key value to `status.apiKeyValue` in the consumer's APIKey resource
+   - If approved: Reads the API key from the consumer's secret and creates an enforcement secret in the Kuadrant namespace
 
 5. **Consumer (API Consumer namespace)**
    - Checks their `APIKey` status for approval
-   - Accesses the API key value from `status.apiKeyValue` (no secret read permissions needed)
+   - Accesses the API key value from the secret they created (referenced in `spec.secretRef`)
    - Uses the API key to authenticate API requests
 
 ### Workflow: Automatic Approval Mode
@@ -554,8 +553,7 @@ make local-deploy
    - Check your `APIKey` status conditions for approval/denial
 
 3. **Access Your API Key**
-   - Once approved, retrieve the API key value from `status.apiKeyValue`
-   - No secret read permissions needed
+   - Once approved, retrieve the API key value from the secret you created (referenced in `spec.secretRef`)
    - Use the key to authenticate your API requests
 
 ### Reviewing Requests (API Owner)

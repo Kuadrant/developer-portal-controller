@@ -168,18 +168,24 @@ The APIKey should now show an `Approved` condition (replacing the previous `Pend
 
 ```yaml
 status:
+  observedGeneration: 1
   conditions:
   - type: Approved
     status: "True"
     reason: Approved
     message: "API key request approved by api-owner@gamestore.com: Valid use case for mobile gaming platform integration"
     lastTransitionTime: "<timestamp>"
-  apiKeyValue: "my-secure-api-key-12345"
   limits:
     daily: 100
-  apiHostname: ...
+  apiHostname: api.gamestore.example.com
   authScheme:
-    # ... authentication configuration
+    authenticationSpec:
+      selector:
+        matchLabels:
+          group: gamestore
+    credentials:
+      authorizationHeader:
+        prefix: APIKEY
 ```
 
 ---

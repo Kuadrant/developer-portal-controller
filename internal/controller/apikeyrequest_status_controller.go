@@ -73,7 +73,6 @@ func (r *APIKeyRequestStatusReconciler) Reconcile(ctx context.Context, req ctrl.
 		}
 
 		// Sync status conditions from APIKey to APIKeyRequest
-		// Note: We don't sync apiKeyValue as it's sensitive information
 		if !conditionsEqual(apiKey.Status.Conditions, apiKeyRequest.Status.Conditions) {
 			logger.V(1).Info("conditions not equal", "apiKeyKey", apiKeyKey)
 			// Copy conditions from APIKey to APIKeyRequest
