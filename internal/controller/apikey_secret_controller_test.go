@@ -973,7 +973,7 @@ var _ = Describe("APIKeySecret Controller", func() {
 				return k8sClient.Get(ctx, enforcementSecretKey2, enforcementSecret2)
 			}, time.Second*10, time.Millisecond*250).Should(Succeed())
 
-			By("Verifying enforcement secret names are distinct (EXPECTED TO FAIL with current implementation)")
+			By("Verifying enforcement secret names are distinct")
 			Expect(enforcementSecret1.Name).NotTo(Equal(enforcementSecret2.Name),
 				"Enforcement secrets for distinct APIKeys (foo-bar/baz and foo/bar-baz) must have different names to avoid collisions")
 
