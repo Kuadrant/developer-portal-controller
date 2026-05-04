@@ -452,7 +452,7 @@ The Developer Portal Controller implements a namespace-based RBAC model with thr
 1. **Consumer (API Consumer namespace)**
    - Creates an `APIKey` resource in their namespace
    - Specifies the desired API product, plan tier, and use case
-   - APIKey starts in **Pending** state (no approval conditions)
+   - APIKey starts with a `Pending` condition (status `"True"`) indicating it awaits approval (see [APIKey Status Fields](#apikey-status-fields))
 
 2. **Controller (Automatic)**
    - Detects the new APIKey
