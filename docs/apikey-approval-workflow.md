@@ -99,7 +99,7 @@ kubectl get apikeyrequest -n gamestore
 
 **Expected output:**
 
-```
+```text
 NAME                              AGE
 consumer-app-gamestore-apikey     <time>
 ```
@@ -303,7 +303,7 @@ kubectl get secrets -n kuadrant-system \
 
 **Expected output:**
 
-```
+```text
 No resources found in kuadrant-system namespace.
 ```
 

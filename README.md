@@ -542,17 +542,21 @@ make local-deploy
 
 ### Requesting API Access (API Consumer)
 
-1. **Create an APIKey** resource in your namespace referencing the API owner's APIProduct
+1. **Create a Secret** containing your API key credentials in your namespace
+   - The secret must contain an `api_key` entry with your desired API key value
+
+2. **Create an APIKey** resource in your namespace referencing the API owner's APIProduct
    - Use a cross-namespace reference: `spec.apiProductRef.namespace`
+   - Reference the secret you created via `spec.secretRef`
    - Specify your desired plan tier and use case
    - Provide your user ID and email
 
-2. **Wait for Review** (if `approvalMode` is `manual`)
+3. **Wait for Review** (if `approvalMode` is `manual`)
    - Controller automatically creates an `APIKeyRequest` in the API owner's namespace
    - API owner reviews your request and creates an `APIKeyApproval` resource
    - Check your `APIKey` status conditions for approval/denial
 
-3. **Access Your API Key**
+4. **Access Your API Key**
    - Once approved, retrieve the API key value from the secret you created (referenced in `spec.secretRef`)
    - Use the key to authenticate your API requests
 
