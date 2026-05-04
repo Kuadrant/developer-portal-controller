@@ -37,6 +37,7 @@ import (
 
 	authorinov1beta3 "github.com/kuadrant/authorino/api/v1beta3"
 	kuadrantapiv1 "github.com/kuadrant/kuadrant-operator/api/v1"
+	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
 	planpolicyv1alpha1 "github.com/kuadrant/kuadrant-operator/cmd/extensions/plan-policy/api/v1alpha1"
 
 	devportalv1alpha1 "github.com/kuadrant/developer-portal-controller/api/v1alpha1"
@@ -557,6 +558,10 @@ func (r *APIKeyStatusReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&devportalv1alpha1.APIKeyRequest{}, handler.EnqueueRequestsFromMapFunc(r.enqueueClass)).
 		Watches(&devportalv1alpha1.APIKeyApproval{}, handler.EnqueueRequestsFromMapFunc(r.enqueueClass)).
 		Watches(&gwapiv1.HTTPRoute{}, handler.EnqueueRequestsFromMapFunc(r.enqueueClass)).
+		// Watch consumer Secrets so that secret deletion or rotation triggers status re-evaluation (Failed condition).
+		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.enqueueClass)).
+		// Watch Kuadrant CR so that late Kuadrant creation triggers status re-evaluation (clears KuadrantNotFound Failed condition).
+		Watches(&kuadrantv1beta1.Kuadrant{}, handler.EnqueueRequestsFromMapFunc(r.enqueueClass)).
 		Named("apikey-status").
 		Complete(r)
 }

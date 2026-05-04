@@ -32,6 +32,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
+	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
+
 	devportalv1alpha1 "github.com/kuadrant/developer-portal-controller/api/v1alpha1"
 	"github.com/kuadrant/developer-portal-controller/internal/reconcilers"
 )
@@ -56,7 +58,7 @@ type APIKeySecretReconciler struct {
 
 // +kubebuilder:rbac:groups=devportal.kuadrant.io,resources=apikeys,verbs=get;list;watch
 // +kubebuilder:rbac:groups=devportal.kuadrant.io,resources=apiproducts,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;delete
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups=kuadrant.io,resources=kuadrants,verbs=get;list;watch
 
 // Reconcile handles enforcement secret creation/deletion for all APIKeys
@@ -116,7 +118,9 @@ func (r *APIKeySecretReconciler) Reconcile(ctx context.Context, _ ctrl.Request) 
 			logger.Error(err, "unexpected nil enforcement secret")
 			return ctrl.Result{}, err
 		}
-		_, err = r.ReconcileResource(ctx, &corev1.Secret{}, enforcementSecret, reconcilers.CreateOnlyMutator)
+		// Use a mutator that updates the api_key data when the consumer secret is rotated,
+		// in addition to creating it on first approval.
+		_, err = r.ReconcileResource(ctx, &corev1.Secret{}, enforcementSecret, enforcementSecretMutator)
 		if err != nil {
 			logger.Error(err, "Failed to reconcile enforcement secret", "apiKey", client.ObjectKeyFromObject(apiKey))
 			return ctrl.Result{}, err
@@ -217,6 +221,47 @@ func (r *APIKeySecretReconciler) desiredEnforcementSecret(ctx context.Context, a
 	}, nil
 }
 
+// enforcementSecretMutator updates the enforcement secret's api_key data when the consumer
+// secret has been rotated, and also keeps labels in sync.
+func enforcementSecretMutator(existing, desired client.Object) (bool, error) {
+	existingSecret, ok := existing.(*corev1.Secret)
+	if !ok {
+		return false, fmt.Errorf("existing object is not a Secret")
+	}
+	desiredSecret, ok := desired.(*corev1.Secret)
+	if !ok {
+		return false, fmt.Errorf("desired object is not a Secret")
+	}
+
+	updated := false
+
+	// Update api_key data if rotated
+	if string(existingSecret.Data[apiKeySecretKey]) != string(desiredSecret.Data[apiKeySecretKey]) {
+		existingSecret.Data = desiredSecret.Data
+		updated = true
+	}
+
+	// Keep labels in sync (e.g. auth scheme selector labels may change)
+	if !mapsEqual(existingSecret.Labels, desiredSecret.Labels) {
+		existingSecret.Labels = desiredSecret.Labels
+		updated = true
+	}
+
+	return updated, nil
+}
+
+func mapsEqual(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range b {
+		if a[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
 // enforcementSecretName generates a unique name for the enforcement secret
 // Pattern: devportal-{apikey-namespace}-{apikey-name}
 // This prevents naming collisions when multiple APIKeys have the same name in different namespaces
@@ -240,6 +285,10 @@ func enforcementSecretName(apiKey *devportalv1alpha1.APIKey) string {
 func (r *APIKeySecretReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Watches(&devportalv1alpha1.APIKey{}, handler.EnqueueRequestsFromMapFunc(r.enqueueClass)).
+		// Watch consumer Secrets so that secret deletion or rotation triggers enforcement secret reconciliation.
+		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.enqueueClass)).
+		// Watch Kuadrant CR so that late Kuadrant creation triggers enforcement secret reconciliation.
+		Watches(&kuadrantv1beta1.Kuadrant{}, handler.EnqueueRequestsFromMapFunc(r.enqueueClass)).
 		Named("apikey-secret").
 		Complete(r)
 }
