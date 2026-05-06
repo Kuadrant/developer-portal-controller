@@ -21,21 +21,24 @@ runs:
     - name: Create or checkout release branch
       id: create-branch
       shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_PUSH: ${{ inputs.push }}
       run: |
-        base_branch=release-v$(echo "${{ inputs.version }}" | sed 's/[+-].*//; s/\.[0-9]*$//')
-        echo "branch-name=$base_branch" >> $GITHUB_OUTPUT
+        base_branch=release-v$(echo "$INPUT_VERSION" | sed 's/[+-].*//; s/\.[0-9]*$//')
+        echo "branch-name=$base_branch" >> "$GITHUB_OUTPUT"
 
-        if git ls-remote --exit-code --heads origin $base_branch; then
+        if git ls-remote --exit-code --heads origin "$base_branch"; then
           echo "Base branch $base_branch already exists"
-          git fetch origin $base_branch
-          git checkout $base_branch
-          echo "branch-existed=true" >> $GITHUB_OUTPUT
+          git fetch origin "$base_branch"
+          git checkout "$base_branch"
+          echo "branch-existed=true" >> "$GITHUB_OUTPUT"
         else
           echo "Creating branch $base_branch"
           git checkout -b "$base_branch"
-          echo "branch-existed=false" >> $GITHUB_OUTPUT
+          echo "branch-existed=false" >> "$GITHUB_OUTPUT"
 
-          if [[ "${{ inputs.push }}" == "true" ]]; then
+          if [[ "$INPUT_PUSH" == "true" ]]; then
             git push --set-upstream origin "$base_branch"
           fi
         fi

@@ -4,6 +4,9 @@ inputs:
   github-token:
     description: 'GitHub token for creating release'
     required: true
+  release-branch:
+    description: 'Branch the release is created from'
+    required: false
 
 runs:
   using: 'composite'

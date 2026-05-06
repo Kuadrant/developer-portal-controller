@@ -60,3 +60,4 @@ jobs:
         uses: ./.github/actions/create-release
         with:
           github-token: ${{ secrets.KUADRANT_DEV_PAT }}
+          release-branch: ${{ needs.prepare-release.outputs.RELEASE_BRANCH }}

@@ -25,3 +25,4 @@ jobs:
         uses: ./.github/actions/create-release
         with:
           github-token: ${{ secrets.KUADRANT_DEV_PAT }}
+          release-branch: ${{ github.ref_name }}

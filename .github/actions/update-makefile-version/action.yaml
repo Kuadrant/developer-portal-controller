@@ -9,8 +9,9 @@ runs:
   steps:
     - name: Update VERSION in Makefile
       shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
       run: |
-        VERSION="${{ inputs.version }}"
         sed -i "s/^VERSION ?= .*/VERSION ?= $VERSION/" Makefile
 
         echo "Updated Makefile VERSION to $VERSION"

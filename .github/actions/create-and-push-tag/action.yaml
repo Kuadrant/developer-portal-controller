@@ -9,11 +9,12 @@ runs:
   steps:
     - name: Create and push tag
       shell: bash
+      env:
+        INPUT_TAG: ${{ inputs.tag }}
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-        TAG="${{ inputs.tag }}"
-        git tag -a "$TAG" -m "Release $TAG"
-        git push origin "$TAG"
-        echo "Created and pushed tag: $TAG"
+        git tag -a "$INPUT_TAG" -m "Release $INPUT_TAG"
+        git push origin "$INPUT_TAG"
+        echo "Created and pushed tag: $INPUT_TAG"

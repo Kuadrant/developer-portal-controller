@@ -14,7 +14,11 @@ runs:
       id: get-version
       shell: bash
       run: |
-        VERSION=$(grep "^VERSION ?=" Makefile | sed 's/VERSION ?= //')
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
-        echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+        VERSION=$(grep -m 1 "^VERSION ?=" Makefile | sed 's/VERSION ?= //' | xargs)
+        if [[ -z "$VERSION" ]]; then
+          echo "::error::Could not extract VERSION from Makefile"
+          exit 1
+        fi
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
         echo "Releasing version: $VERSION (tag: v$VERSION)"

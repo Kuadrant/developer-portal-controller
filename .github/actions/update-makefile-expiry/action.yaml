@@ -10,8 +10,9 @@ runs:
   steps:
     - name: Update QUAY_IMAGE_EXPIRY in Makefile
       shell: bash
+      env:
+        QUAY_IMAGE_EXPIRY: ${{ inputs.expiry }}
       run: |
-        QUAY_IMAGE_EXPIRY="${{ inputs.expiry }}"
         sed -i "s/^QUAY_IMAGE_EXPIRY ?= .*/QUAY_IMAGE_EXPIRY ?= $QUAY_IMAGE_EXPIRY/" Makefile
 
         echo "Updated Makefile QUAY_IMAGE_EXPIRY to $QUAY_IMAGE_EXPIRY"

@@ -14,9 +14,11 @@ runs:
     - name: Check if tag already exists
       id: check-tag
       shell: bash
+      env:
+        INPUT_TAG: ${{ inputs.tag }}
+        CURRENT_SHA: ${{ github.sha }}
       run: |
-        TAG="${{ inputs.tag }}"
-        CURRENT_SHA="${{ github.sha }}"
+        TAG="$INPUT_TAG"
         if git rev-parse "$TAG" >/dev/null 2>&1; then
           TAG_SHA=$(git rev-parse "$TAG^{}")
           if [ "$TAG_SHA" = "$CURRENT_SHA" ]; then
