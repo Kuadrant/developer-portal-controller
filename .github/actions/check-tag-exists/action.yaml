@@ -1,0 +1,34 @@
+name: 'Check Tag Exists'
+description: 'Checks if a git tag exists and validates it points to current commit'
+inputs:
+  tag:
+    description: 'Git tag to check'
+    required: true
+outputs:
+  exists:
+    description: 'Whether tag exists (true/false)'
+    value: ${{ steps.check-tag.outputs.exists }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Check if tag already exists
+      id: check-tag
+      shell: bash
+      run: |
+        TAG="${{ inputs.tag }}"
+        CURRENT_SHA="${{ github.sha }}"
+        if git rev-parse "$TAG" >/dev/null 2>&1; then
+          TAG_SHA=$(git rev-parse "$TAG^{}")
+          if [ "$TAG_SHA" = "$CURRENT_SHA" ]; then
+            echo "Tag $TAG already exists and points to current commit"
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "::error::Tag $TAG already exists but points to a different commit"
+            echo "Tag SHA: $TAG_SHA"
+            echo "Current SHA: $CURRENT_SHA"
+            exit 1
+          fi
+        else
+          echo "Tag $TAG does not exist"
+          echo "exists=false" >> $GITHUB_OUTPUT
+        fi

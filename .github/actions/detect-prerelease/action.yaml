@@ -1,0 +1,23 @@
+name: 'Detect Prerelease'
+description: 'Determines if version is a prerelease (alpha/beta/rc)'
+inputs:
+  version:
+    description: 'Version to check'
+    required: true
+outputs:
+  prerelease:
+    description: 'Whether version is prerelease (true/false)'
+    value: ${{ steps.detect.outputs.prerelease }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Determine if prerelease
+      id: detect
+      shell: bash
+      run: |
+        VERSION="${{ inputs.version }}"
+        if [[ "$VERSION" =~ -(alpha|beta|rc) ]]; then
+          echo "prerelease=true" >> $GITHUB_OUTPUT
+        else
+          echo "prerelease=false" >> $GITHUB_OUTPUT
+        fi

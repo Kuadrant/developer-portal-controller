@@ -1,0 +1,17 @@
+name: 'Update Makefile Version'
+description: 'Updates VERSION in Makefile'
+inputs:
+  version:
+    description: 'Version to set in Makefile'
+    required: true
+runs:
+  using: 'composite'
+  steps:
+    - name: Update VERSION in Makefile
+      shell: bash
+      run: |
+        VERSION="${{ inputs.version }}"
+        sed -i "s/^VERSION ?= .*/VERSION ?= $VERSION/" Makefile
+
+        echo "Updated Makefile VERSION to $VERSION"
+        grep "^VERSION" Makefile

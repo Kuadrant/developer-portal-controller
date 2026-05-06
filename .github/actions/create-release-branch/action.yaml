@@ -1,0 +1,41 @@
+name: 'Create Release Branch'
+description: 'Creates or checks out a release branch based on version'
+inputs:
+  version:
+    description: 'Release version (without v prefix)'
+    required: true
+  push:
+    description: 'Whether to push the branch if created'
+    required: false
+    default: 'false'
+outputs:
+  branch-name:
+    description: 'The release branch name'
+    value: ${{ steps.create-branch.outputs.branch-name }}
+  branch-existed:
+    description: 'Whether the branch already existed'
+    value: ${{ steps.create-branch.outputs.branch-existed }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Create or checkout release branch
+      id: create-branch
+      shell: bash
+      run: |
+        base_branch=release-v$(echo "${{ inputs.version }}" | sed 's/[+-].*//; s/\.[0-9]*$//')
+        echo "branch-name=$base_branch" >> $GITHUB_OUTPUT
+
+        if git ls-remote --exit-code --heads origin $base_branch; then
+          echo "Base branch $base_branch already exists"
+          git fetch origin $base_branch
+          git checkout $base_branch
+          echo "branch-existed=true" >> $GITHUB_OUTPUT
+        else
+          echo "Creating branch $base_branch"
+          git checkout -b "$base_branch"
+          echo "branch-existed=false" >> $GITHUB_OUTPUT
+
+          if [[ "${{ inputs.push }}" == "true" ]]; then
+            git push --set-upstream origin "$base_branch"
+          fi
+        fi

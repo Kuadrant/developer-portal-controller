@@ -1,0 +1,18 @@
+name: 'Update Makefile Expiry'
+description: 'Updates QUAY_IMAGE_EXPIRY in Makefile'
+inputs:
+  expiry:
+    description: 'Expiry value to set (e.g., never, 3w)'
+    required: true
+    default: 'never'
+runs:
+  using: 'composite'
+  steps:
+    - name: Update QUAY_IMAGE_EXPIRY in Makefile
+      shell: bash
+      run: |
+        QUAY_IMAGE_EXPIRY="${{ inputs.expiry }}"
+        sed -i "s/^QUAY_IMAGE_EXPIRY ?= .*/QUAY_IMAGE_EXPIRY ?= $QUAY_IMAGE_EXPIRY/" Makefile
+
+        echo "Updated Makefile QUAY_IMAGE_EXPIRY to $QUAY_IMAGE_EXPIRY"
+        grep "^QUAY_IMAGE_EXPIRY" Makefile

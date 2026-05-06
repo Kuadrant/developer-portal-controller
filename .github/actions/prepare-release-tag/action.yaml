@@ -1,0 +1,39 @@
+name: 'Prepare Release Tag'
+description: 'Manages release tag creation and metadata'
+outputs:
+  version:
+    description: 'Version from Makefile'
+    value: ${{ steps.get-version.outputs.version }}
+  tag:
+    description: 'Git tag with v prefix'
+    value: ${{ steps.get-version.outputs.tag }}
+  prerelease:
+    description: 'Whether version is prerelease'
+    value: ${{ steps.detect-prerelease.outputs.prerelease }}
+  tag-created:
+    description: 'Whether a new tag was created'
+    value: ${{ steps.check-tag.outputs.exists == 'false' }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Get version from Makefile
+      id: get-version
+      uses: ./.github/actions/get-version-from-makefile
+
+    - name: Check if tag exists
+      id: check-tag
+      uses: ./.github/actions/check-tag-exists
+      with:
+        tag: ${{ steps.get-version.outputs.tag }}
+
+    - name: Create and push tag
+      if: steps.check-tag.outputs.exists == 'false'
+      uses: ./.github/actions/create-and-push-tag
+      with:
+        tag: ${{ steps.get-version.outputs.tag }}
+
+    - name: Detect prerelease
+      id: detect-prerelease
+      uses: ./.github/actions/detect-prerelease
+      with:
+        version: ${{ steps.get-version.outputs.version }}

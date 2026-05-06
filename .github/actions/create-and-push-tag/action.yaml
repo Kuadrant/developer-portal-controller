@@ -1,0 +1,19 @@
+name: 'Create and Push Tag'
+description: 'Creates and pushes a git tag'
+inputs:
+  tag:
+    description: 'Git tag to create'
+    required: true
+runs:
+  using: 'composite'
+  steps:
+    - name: Create and push tag
+      shell: bash
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+        TAG="${{ inputs.tag }}"
+        git tag -a "$TAG" -m "Release $TAG"
+        git push origin "$TAG"
+        echo "Created and pushed tag: $TAG"

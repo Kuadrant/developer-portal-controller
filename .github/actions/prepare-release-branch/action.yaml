@@ -1,0 +1,45 @@
+name: 'Prepare Release Branch'
+description: 'Prepares a release branch with updated Makefile'
+inputs:
+  version:
+    description: 'Release version (without v prefix)'
+    required: true
+  push-branch:
+    description: 'Whether to push the branch if created'
+    required: false
+    default: 'false'
+  expiry:
+    description: 'QUAY_IMAGE_EXPIRY value'
+    required: false
+    default: 'never'
+outputs:
+  branch-name:
+    description: 'The release branch name'
+    value: ${{ steps.create-branch.outputs.branch-name }}
+  branch-existed:
+    description: 'Whether the branch already existed'
+    value: ${{ steps.create-branch.outputs.branch-existed }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Validate version
+      uses: ./.github/actions/validate-version
+      with:
+        version: ${{ inputs.version }}
+
+    - name: Create release branch
+      id: create-branch
+      uses: ./.github/actions/create-release-branch
+      with:
+        version: ${{ inputs.version }}
+        push: ${{ inputs.push-branch }}
+
+    - name: Update Makefile VERSION
+      uses: ./.github/actions/update-makefile-version
+      with:
+        version: ${{ inputs.version }}
+
+    - name: Update Makefile QUAY_IMAGE_EXPIRY
+      uses: ./.github/actions/update-makefile-expiry
+      with:
+        expiry: ${{ inputs.expiry }}

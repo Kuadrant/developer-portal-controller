@@ -1,0 +1,30 @@
+name: Create Release
+description: 'Creates a GitHub release from a release branch'
+inputs:
+  github-token:
+    description: 'GitHub token for creating release'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Prepare release tag
+      id: prepare-tag
+      uses: ./.github/actions/prepare-release-tag
+
+    - name: Generate release notes
+      uses: ./.github/actions/generate-release-notes
+      with:
+        tag: ${{ steps.prepare-tag.outputs.tag }}
+        github-token: ${{ inputs.github-token }}
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        name: ${{ steps.prepare-tag.outputs.tag }}
+        tag_name: ${{ steps.prepare-tag.outputs.tag }}
+        body: ${{ env.releaseBody }}
+        target_commitish: ${{ inputs.release-branch }}
+        prerelease: ${{ steps.prepare-tag.outputs.prerelease }}
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}

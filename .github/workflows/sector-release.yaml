@@ -1,0 +1,62 @@
+name: Sector Automated Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      gitRef:
+        description: Commit SHA, tag or branch name (usually main branch)
+        required: true
+        default: "main"
+        type: string
+      version:
+        description: Release version (semver without v prefix, e.g. 0.1.0)
+        required: true
+        type: string
+
+jobs:
+  prepare-release:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    outputs:
+      RELEASE_BRANCH: ${{ steps.prepare-branch.outputs.branch-name }}
+    steps:
+      - name: Checkout code at git ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.gitRef }}
+          token: ${{ secrets.KUADRANT_DEV_PAT }}
+          fetch-depth: 0
+
+      - name: Prepare release branch
+        id: prepare-branch
+        uses: ./.github/actions/prepare-release-branch
+        with:
+          version: ${{ github.event.inputs.version }}
+          push-branch: 'false'
+          expiry: 'never'
+
+      - name: Commit and push changes
+        shell: bash
+        run: |
+          git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+          git config --global user.name "${{ github.actor}}"
+
+          git commit . -s -m "Prepare release ${{ github.event.inputs.version }}"
+          git push --set-upstream origin "${{ steps.prepare-branch.outputs.branch-name }}"
+
+  release:
+    name: Create release
+    needs: prepare-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.KUADRANT_DEV_PAT }}
+          ref: ${{ needs.prepare-release.outputs.RELEASE_BRANCH }}
+          fetch-depth: 0
+
+      - name: Create release
+        uses: ./.github/actions/create-release
+        with:
+          github-token: ${{ secrets.KUADRANT_DEV_PAT }}
