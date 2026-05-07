@@ -568,7 +568,7 @@ var _ = Describe("APIKey Status Controller", func() {
 					Approved:   false,
 					ReviewedBy: "admin@example.com",
 					ReviewedAt: metav1.Now(),
-					Reason:     "Insufficient justification",
+					Message:    "Insufficient justification",
 				},
 			}
 			Expect(k8sClient.Create(ctx, approval)).To(Succeed())

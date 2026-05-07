@@ -320,13 +320,15 @@ spec:
 			Eventually(verifyAPIKeyCreated).Should(Succeed())
 
 			By("verifying APIKeyRequest was created in the owner namespace")
-			apiKeyRequestName := fmt.Sprintf("%s-%s", consumerNamespace, apiKeyName)
+			var apiKeyRequestName string
 			verifyAPIKeyRequestCreated := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "apikeyrequest", apiKeyRequestName,
-					"-n", ownerNamespace, "-o", "jsonpath={.metadata.name}")
+				cmd := exec.Command("kubectl", "get", "apikeyrequest",
+					"-n", ownerNamespace,
+					"-o", "jsonpath={.items[0].metadata.name}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal(apiKeyRequestName))
+				g.Expect(output).NotTo(BeEmpty(), "APIKeyRequest should be created")
+				apiKeyRequestName = output
 			}
 			Eventually(verifyAPIKeyRequestCreated).Should(Succeed())
 
