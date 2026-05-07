@@ -77,14 +77,13 @@ kubectl get apikey gamestore-apikey -n consumer-app -o jsonpath='{.status}' | yq
 **Expected output:**
 
 ```yaml
-status:
-  conditions:
-  - type: Pending
-    status: "True"
-    reason: AwaitingApproval
-    message: "API key request is awaiting approval"
-    lastTransitionTime: "<timestamp>"
-  observedGeneration: 1
+conditions:
+- type: Pending
+  status: "True"
+  reason: AwaitingApproval
+  message: "API key request is awaiting approval"
+  lastTransitionTime: "<timestamp>"
+observedGeneration: 1
 ```
 
 This indicates the request is awaiting approval from the API owner.
@@ -102,14 +101,23 @@ kubectl get apikeyrequest -n gamestore
 **Expected output:**
 
 ```text
-NAME                              AGE
-consumer-app-gamestore-apikey     <time>
+NAME                                           AGE
+consumer-app-gamestore-apikey-8dee3e06         <time>
+```
+
+Note: The APIKeyRequest name includes an 8-character hash suffix to prevent naming collisions.
+
+**Get the APIKeyRequest name dynamically:**
+
+```bash
+APIKEYREQUEST_NAME=$(kubectl get apikeyrequest -n gamestore -o jsonpath='{.items[0].metadata.name}')
+echo $APIKEYREQUEST_NAME
 ```
 
 **Inspect the apikey request details:**
 
 ```bash
-kubectl describe apikeyrequest consumer-app-gamestore-apikey -n gamestore
+kubectl describe apikeyrequest $APIKEYREQUEST_NAME -n gamestore
 ```
 
 Expected: You should see the use case, requester email, plan tier, and reference to the consumer's APIKey.
@@ -129,7 +137,7 @@ metadata:
   namespace: gamestore
 spec:
   apiKeyRequestRef:
-    name: consumer-app-gamestore-apikey
+    name: $APIKEYREQUEST_NAME
   approved: true
   reviewedBy: api-owner@gamestore.com
   reviewedAt: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -137,6 +145,8 @@ spec:
   message: "Valid use case for mobile gaming platform integration"
 EOF
 ```
+
+Note: This uses the `$APIKEYREQUEST_NAME` variable set in the previous step.
 
 ---
 
@@ -169,25 +179,24 @@ The APIKey should now show an `Approved` condition (replacing the previous `Pend
 **Expected output should include:**
 
 ```yaml
-status:
-  observedGeneration: 1
-  conditions:
-  - type: Approved
-    status: "True"
-    reason: Approved
-    message: "API key request approved by api-owner@gamestore.com: Valid use case for mobile gaming platform integration"
-    lastTransitionTime: "<timestamp>"
-  limits:
-    daily: 100
-  apiHostname: api.gamestore.example.com
-  authScheme:
-    authenticationSpec:
-      selector:
-        matchLabels:
-          group: gamestore
-    credentials:
-      authorizationHeader:
-        prefix: APIKEY
+observedGeneration: 1
+conditions:
+- type: Approved
+  status: "True"
+  reason: Approved
+  message: "API key request approved by api-owner@gamestore.com: Valid use case for mobile gaming platform integration"
+  lastTransitionTime: "<timestamp>"
+limits:
+  daily: 100
+apiHostname: api.gamestore.example.com
+authScheme:
+  authenticationSpec:
+    selector:
+      matchLabels:
+        group: gamestore
+  credentials:
+    authorizationHeader:
+      prefix: APIKEY
 ```
 
 ---
@@ -266,13 +275,13 @@ kubectl get apikey gamestore-apikey -n consumer-app -o jsonpath='{.status}' | yq
 **Expected output should include:**
 
 ```yaml
-status:
-  conditions:
-  - type: Denied
-    status: "True"
-    reason: Denied
-    message: "API key request denied by api-owner@gamestore.com: Denied"
-    lastTransitionTime: "<timestamp>"
+conditions:
+- lastTransitionTime: "<timestamp>"
+  message: 'API key request denied by api-owner@gamestore.com: Use case no longer meets security requirements'
+  observedGeneration: 1
+  reason: Denied
+  status: "True"
+  type: Denied
 ```
 
 **Quick check:**

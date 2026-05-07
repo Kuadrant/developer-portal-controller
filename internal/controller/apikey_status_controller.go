@@ -351,7 +351,7 @@ func (r *APIKeyStatusReconciler) calculateDeniedCondition(ctx context.Context, a
 	if approval != nil && !approval.Spec.Approved {
 		message := fmt.Sprintf("API key request denied by %s", approval.Spec.ReviewedBy)
 		if approval.Spec.Reason != "" {
-			message = fmt.Sprintf("%s: %s", message, approval.Spec.Reason)
+			message = fmt.Sprintf("%s: %s", message, approval.Spec.Message)
 		}
 		return &metav1.Condition{
 			Type:               devportalv1alpha1.APIKeyConditionDenied,

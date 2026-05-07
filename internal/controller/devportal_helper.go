@@ -2,6 +2,8 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -56,10 +58,25 @@ func GetAPIKeyApprovals(ctx context.Context) *devportalv1alpha1.APIKeyApprovalLi
 	return apiKeyApprovals
 }
 
-// APIKeyRequestName constructs the APIKeyRequest name for a given APIKey
-// Pattern: {apiKeyNamespace}-{apiKeyName}
+// APIKeyRequestName generates a unique name for the APIKeyRequest
+// Pattern: {apikey-namespace}-{apikey-name}-{hash}
+// The hash ensures a deterministic 1:1 mapping from APIKey to APIKeyRequest - no two APIKeys
+// can produce the same name. If the APIKeyRequest already exists, the controller updates it
+// to sync with the APIKey state, making reconciliation idempotent.
 func APIKeyRequestName(apiKey *devportalv1alpha1.APIKey) string {
-	return fmt.Sprintf("%s-%s", apiKey.Namespace, apiKey.Name)
+	// Create unique identifier from namespace and name
+	identifier := fmt.Sprintf("%s/%s", apiKey.Namespace, apiKey.Name)
+
+	// Generate hash suffix to prevent collisions between ambiguous namespace/name pairs
+	// e.g., "foo-bar/baz" vs "foo/bar-baz" would both produce "foo-bar-baz"
+	// without the hash suffix
+	hash := sha256.Sum256([]byte(identifier))
+	hashSuffix := hex.EncodeToString(hash[:])[:8] // Hex encoding produces [0-9a-f], all DNS-1123 valid
+
+	// DNS-1123 compliant: max length 138 chars (< 253 limit)
+	// - Namespace and name are already validated as DNS-1123 labels by Kubernetes
+	// - Hex suffix contains only lowercase alphanumeric [0-9a-f], guaranteed DNS-1123 compliant
+	return fmt.Sprintf("%s-%s-%s", apiKey.Namespace, apiKey.Name, hashSuffix)
 }
 
 // GetKuadrantNamespace finds the namespace where the Kuadrant CR exists
