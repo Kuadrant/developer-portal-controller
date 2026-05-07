@@ -4,6 +4,8 @@ This guide walks through the complete happy path workflow for API key approval, 
 
 ## Prerequisites
 
+- [kubectl](https://kubernetes.io/docs/tasks/tools/#kubectl) command line tool
+- `yq` command line tool. See the [github page](https://github.com/mikefarah/yq/#install) for the various ways you can install and use yq.
 - Local environment set up with `make local-setup`
 
 ## Validation Steps
