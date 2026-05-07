@@ -134,7 +134,7 @@ func (r *APIKeySecretReconciler) Reconcile(ctx context.Context, _ ctrl.Request) 
 	for i := range enforcementSecrets.Items {
 		enforcementSecret := &enforcementSecrets.Items[i]
 		if !validEnforcementSecretKeys[enforcementSecret.Name] {
-			// The enforcement secret not assigned no any approved apikey, delete the enforcement secret
+			// The enforcement secret is not assigned to any approved APIKey, delete it
 			if err := r.Delete(ctx, enforcementSecret); err != nil {
 				if !apierrors.IsNotFound(err) {
 					logger.Error(err, "Failed to delete orphaned enforcement secret", "secret", client.ObjectKeyFromObject(enforcementSecret))

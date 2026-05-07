@@ -233,6 +233,7 @@ kubectl get secret -n kuadrant-system $SECRET_NAME -o jsonpath='{.data.api_key}'
 **Expected:**
 
 - Secret has appropriate labels:
+  - `devportal.kuadrant.io/enforcement=true`
   - `devportal.kuadrant.io/apiproduct=gamestore-api`
   - `devportal.kuadrant.io/apiproduct-namespace=gamestore`
   - `devportal.kuadrant.io/apikey=gamestore-apikey`

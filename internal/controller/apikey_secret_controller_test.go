@@ -151,6 +151,7 @@ var _ = Describe("APIKeySecret Controller", func() {
 			}, time.Second*10, time.Millisecond*250).Should(Succeed())
 
 			By("Verifying enforcement secret has correct labels")
+			Expect(enforcementSecret.Labels).To(HaveKeyWithValue(enforcementSecretLabel, "true"))
 			Expect(enforcementSecret.Labels).To(HaveKeyWithValue(enforcementSecretLabelAPIProduct, apiProductName))
 			Expect(enforcementSecret.Labels).To(HaveKeyWithValue(enforcementSecretLabelAPIKey, apiKeyName))
 			Expect(enforcementSecret.Labels).To(HaveKeyWithValue(enforcementSecretLabelAPIKeyNamespace, consumerNamespace))
@@ -982,6 +983,109 @@ var _ = Describe("APIKeySecret Controller", func() {
 				"foo-bar/baz should have its own secret data")
 			Expect(string(enforcementSecret2.Data[apiKeySecretKey])).To(Equal("foo-bar-baz-key-2"),
 				"foo/bar-baz should have its own secret data")
+		})
+	})
+
+	Context("When an approved APIKey is deleted", func() {
+		var (
+			apiKey         *devportalv1alpha1.APIKey
+			consumerSecret *corev1.Secret
+		)
+
+		ctx := context.Background()
+
+		BeforeEach(func() {
+			By("Creating consumer secret with API key")
+			consumerSecret = &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      secretName,
+					Namespace: consumerNamespace,
+				},
+				Type: corev1.SecretTypeOpaque,
+				Data: map[string][]byte{
+					apiKeySecretKey: []byte("test-api-key-value"),
+				},
+			}
+			Expect(k8sClient.Create(ctx, consumerSecret)).To(Succeed())
+
+			By("Creating an APIKey with Approved condition")
+			apiKey = &devportalv1alpha1.APIKey{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      apiKeyName,
+					Namespace: consumerNamespace,
+				},
+				Spec: devportalv1alpha1.APIKeySpec{
+					APIProductRef: devportalv1alpha1.APIProductReference{
+						Name:      apiProductName,
+						Namespace: consumerNamespace,
+					},
+					SecretRef: corev1.LocalObjectReference{
+						Name: secretName,
+					},
+					PlanTier: "premium",
+					UseCase:  "Testing enforcement secret cleanup on deletion",
+					RequestedBy: devportalv1alpha1.RequestedBy{
+						UserID: "test-user",
+						Email:  "test@example.com",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, apiKey)).To(Succeed())
+
+			apiKey.Status.Conditions = []metav1.Condition{
+				{
+					Type:               devportalv1alpha1.APIKeyConditionApproved,
+					Status:             metav1.ConditionTrue,
+					ObservedGeneration: apiKey.Generation,
+					LastTransitionTime: metav1.Now(),
+					Reason:             "Approved",
+					Message:            "API key approved",
+				},
+			}
+			Expect(k8sClient.Status().Update(ctx, apiKey)).To(Succeed())
+		})
+
+		It("should delete orphaned enforcement secret when APIKey is deleted", func() {
+			controllerReconciler := &APIKeySecretReconciler{
+				BaseReconciler: reconcilers.BaseReconciler{
+					Client: k8sClient,
+					Scheme: k8sClient.Scheme(),
+				},
+			}
+
+			By("Creating enforcement secret for approved APIKey")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying enforcement secret exists")
+			enforcementSecret := &corev1.Secret{}
+			enforcementSecretKey := types.NamespacedName{
+				Name:      enforcementSecretName(apiKey),
+				Namespace: kuadrantNamespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, enforcementSecretKey, enforcementSecret)
+			}, time.Second*10, time.Millisecond*250).Should(Succeed())
+			Expect(string(enforcementSecret.Data[apiKeySecretKey])).To(Equal("test-api-key-value"))
+
+			By("Deleting the APIKey")
+			Expect(k8sClient.Delete(ctx, apiKey)).To(Succeed())
+
+			By("Waiting for APIKey to be fully removed")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: apiKeyName, Namespace: consumerNamespace}, &devportalv1alpha1.APIKey{})
+				return apierrors.IsNotFound(err)
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+
+			By("Running reconciliation after APIKey deletion")
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying enforcement secret was deleted (orphan cleanup)")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, enforcementSecretKey, enforcementSecret)
+				return apierrors.IsNotFound(err)
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
 		})
 	})
 })
