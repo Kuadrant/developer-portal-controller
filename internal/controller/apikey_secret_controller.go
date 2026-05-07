@@ -42,6 +42,7 @@ const (
 	apiKeySecretLabelAuthorinoValue = "authorino"
 	apiKeySecretKey                 = "api_key"
 	// Enforcement secret labels
+	enforcementSecretLabel                    = "devportal.kuadrant.io/enforcement"
 	enforcementSecretLabelAPIProduct          = "devportal.kuadrant.io/apiproduct"
 	enforcementSecretLabelAPIProductNamespace = "devportal.kuadrant.io/apiproduct-namespace"
 	enforcementSecretLabelAPIKey              = "devportal.kuadrant.io/apikey"
@@ -78,6 +79,16 @@ func (r *APIKeySecretReconciler) Reconcile(ctx context.Context, _ ctrl.Request) 
 		return ctrl.Result{}, nil
 	}
 
+	// List enforcement secrets in kuadrant namespace
+	enforcementSecrets := &corev1.SecretList{}
+	if err := r.List(ctx, enforcementSecrets,
+		client.InNamespace(kuadrantNamespace),
+		client.MatchingLabels{enforcementSecretLabel: "true"},
+	); err != nil {
+		logger.Error(err, "Failed to list enforcement secrets")
+		return ctrl.Result{}, err
+	}
+
 	// List all APIKeys cluster-wide
 	apiKeyList := &devportalv1alpha1.APIKeyList{}
 	if err := r.List(ctx, apiKeyList); err != nil {
@@ -89,21 +100,17 @@ func (r *APIKeySecretReconciler) Reconcile(ctx context.Context, _ ctrl.Request) 
 		return apiKey.GetDeletionTimestamp() == nil
 	})
 
-	deletingAPIKeyList := lo.Filter(apiKeyList.Items, func(apiKey devportalv1alpha1.APIKey, _ int) bool {
-		return apiKey.GetDeletionTimestamp() != nil
-	})
-
 	approvedAPIKeyList := lo.Filter(activeAPIKeyList, func(apiKey devportalv1alpha1.APIKey, _ int) bool {
 		return apiKey.IsApproved()
 	})
 
-	notApprovedAPIKeyList := lo.Filter(activeAPIKeyList, func(apiKey devportalv1alpha1.APIKey, _ int) bool {
-		return !apiKey.IsApproved()
-	})
+	// Create a map of valid enforcement secret names for cleanup check
+	validEnforcementSecretKeys := make(map[string]bool)
 
 	// Process each active and approved APIKey
 	for idx := range approvedAPIKeyList {
 		apiKey := &approvedAPIKeyList[idx]
+		validEnforcementSecretKeys[enforcementSecretName(apiKey)] = true
 
 		enforcementSecret, err := r.desiredEnforcementSecret(ctx, apiKey, kuadrantNamespace)
 		if err != nil {
@@ -124,16 +131,18 @@ func (r *APIKeySecretReconciler) Reconcile(ctx context.Context, _ ctrl.Request) 
 	}
 
 	// Process each deleting or not-approved APIKey - delete their enforcement secrets
-	toDeleteList := append(deletingAPIKeyList, notApprovedAPIKeyList...)
-	for idx := range toDeleteList {
-		apiKey := &toDeleteList[idx]
-		enforcementSecret := &corev1.Secret{}
-		enforcementSecret.Name = enforcementSecretName(apiKey)
-		enforcementSecret.Namespace = kuadrantNamespace
-		reconcilers.TagObjectToDelete(enforcementSecret)
-		if _, err := r.ReconcileResource(ctx, &corev1.Secret{}, enforcementSecret, reconcilers.CreateOnlyMutator); err != nil {
-			logger.Error(err, "Failed to delete enforcement secret for deleting APIKey", "apiKey", client.ObjectKeyFromObject(apiKey))
-			return ctrl.Result{}, err
+	for i := range enforcementSecrets.Items {
+		enforcementSecret := &enforcementSecrets.Items[i]
+		if !validEnforcementSecretKeys[enforcementSecret.Name] {
+			// The enforcement secret not assigned no any approved apikey, delete the enforcement secret
+			if err := r.Delete(ctx, enforcementSecret); err != nil {
+				if !apierrors.IsNotFound(err) {
+					logger.Error(err, "Failed to delete orphaned enforcement secret", "secret", client.ObjectKeyFromObject(enforcementSecret))
+					return ctrl.Result{}, err
+				}
+			} else {
+				logger.Info("Deleted orphaned enforcement secret", "secret", client.ObjectKeyFromObject(enforcementSecret))
+			}
 		}
 	}
 
@@ -185,6 +194,7 @@ func (r *APIKeySecretReconciler) desiredEnforcementSecret(ctx context.Context, a
 	}
 
 	secretLabels := map[string]string{
+		enforcementSecretLabel:                    "true",
 		enforcementSecretLabelAPIProduct:          apiKey.Spec.APIProductRef.Name,
 		enforcementSecretLabelAPIProductNamespace: apiKey.Spec.APIProductRef.Namespace,
 		enforcementSecretLabelAPIKey:              apiKey.Name,
