@@ -3,6 +3,7 @@ module github.com/kuadrant/developer-portal-controller
 go 1.25.9
 
 require (
+	github.com/go-logr/logr v1.4.3
 	github.com/kuadrant/authorino v0.22.0
 	github.com/kuadrant/kuadrant-operator v1.3.0
 	github.com/onsi/ginkgo/v2 v2.22.0
@@ -31,7 +32,6 @@ require (
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
-	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-logr/zapr v1.3.0 // indirect
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect
@@ -49,6 +49,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
+	github.com/kuadrant/authorino-operator v0.21.0 // indirect
 	github.com/kuadrant/dns-operator v0.0.0-20250826105007-7a0e6d88f7bb // indirect
 	github.com/kuadrant/limitador-operator v0.15.0 // indirect
 	github.com/kuadrant/policy-machinery v0.6.4 // indirect
@@ -58,6 +59,7 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.76.2 // indirect
 	github.com/prometheus/client_golang v1.22.0 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.62.0 // indirect

@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -41,6 +42,7 @@ import (
 	gatewayapiv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 
 	kuadrantapiv1 "github.com/kuadrant/kuadrant-operator/api/v1"
+	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
 	planpolicyv1alpha1 "github.com/kuadrant/kuadrant-operator/cmd/extensions/plan-policy/api/v1alpha1"
 
 	devportalv1alpha1 "github.com/kuadrant/developer-portal-controller/api/v1alpha1"
@@ -75,6 +77,8 @@ var _ = BeforeSuite(func() {
 	err = planpolicyv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 	err = kuadrantapiv1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+	err = kuadrantv1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 	err = gwapiv1.Install(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
@@ -146,22 +150,90 @@ func createNamespaceWithContext(ctx context.Context, namespace *string) {
 	*namespace = nsObject.Name
 }
 
-func deleteNamespaceWithContext(ctx context.Context, namespace *string) {
-	desiredTestNamespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: *namespace}}
+func deleteAPIKeysWithContext(ctx context.Context, namespace string) {
+	// Delete all APIKeys in consumer namespace
+	apiKeyList := &devportalv1alpha1.APIKeyList{}
+	err := k8sClient.List(ctx, apiKeyList, client.InNamespace(namespace))
+	if err == nil {
+		for i := range apiKeyList.Items {
+			_ = k8sClient.Delete(ctx, &apiKeyList.Items[i])
+		}
+	}
+	// Wait for resources to be deleted
+	Eventually(func(g Gomega) {
+		apiKeyList := &devportalv1alpha1.APIKeyList{}
+		_ = k8sClient.List(ctx, apiKeyList, client.InNamespace(namespace))
+		g.Expect(apiKeyList.Items).To(BeEmpty())
+	}, time.Second*5, time.Millisecond*500).Should(Succeed())
+}
 
-	// First, try to delete the namespace with background propagation to avoid waiting for finalizers
+func deleteAPIKeyRequestsWithContext(ctx context.Context, namespace string) {
+	// Delete all APIKeyRequests
+	apiKeyRequestList := &devportalv1alpha1.APIKeyRequestList{}
+	err := k8sClient.List(ctx, apiKeyRequestList, client.InNamespace(namespace))
+	if err == nil {
+		for i := range apiKeyRequestList.Items {
+			_ = k8sClient.Delete(ctx, &apiKeyRequestList.Items[i])
+		}
+	}
+
+	Eventually(func(g Gomega) {
+		apiKeyRequestList := &devportalv1alpha1.APIKeyRequestList{}
+		_ = k8sClient.List(ctx, apiKeyRequestList, client.InNamespace(namespace))
+		g.Expect(apiKeyRequestList.Items).To(BeEmpty())
+	}, time.Second*5, time.Millisecond*500).Should(Succeed())
+}
+
+func deleteAPIKeyApprovalsWithContext(ctx context.Context, namespace string) {
+	// Clean up APIKeyApprovals
+	approvalList := &devportalv1alpha1.APIKeyApprovalList{}
+	err := k8sClient.List(ctx, approvalList, client.InNamespace(namespace))
+	if err == nil {
+		for i := range approvalList.Items {
+			_ = k8sClient.Delete(ctx, &approvalList.Items[i])
+		}
+	}
+
+	Eventually(func(g Gomega) {
+		apiKeyApprovalList := &devportalv1alpha1.APIKeyApprovalList{}
+		_ = k8sClient.List(ctx, apiKeyApprovalList, client.InNamespace(namespace))
+		g.Expect(apiKeyApprovalList.Items).To(BeEmpty())
+	}, time.Second*5, time.Millisecond*500).Should(Succeed())
+}
+
+func deleteKuadrantsWithContext(ctx context.Context, namespace string) {
+	// Delete all APIKeys in consumer namespace
+	kList := &kuadrantv1beta1.KuadrantList{}
+	err := k8sClient.List(ctx, kList, client.InNamespace(namespace))
+	if err == nil {
+		for i := range kList.Items {
+			_ = k8sClient.Delete(ctx, &kList.Items[i])
+		}
+	}
+	// Wait for resources to be deleted
+	Eventually(func(g Gomega) {
+		kList := &kuadrantv1beta1.KuadrantList{}
+		_ = k8sClient.List(ctx, kList, client.InNamespace(namespace))
+		g.Expect(kList.Items).To(BeEmpty())
+	}, time.Second*5, time.Millisecond*500).Should(Succeed())
+}
+
+func deleteNamespaceWithContext(ctx context.Context, namespace string) {
+	desiredTestNamespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}
+
+	// Delete the namespace with background propagation
 	err := k8sClient.Delete(ctx, desiredTestNamespace, client.PropagationPolicy(metav1.DeletePropagationBackground))
 	if err != nil && !apierrors.IsNotFound(err) {
-		// If delete failed with an error other than NotFound, that's unexpected
 		Expect(err).ToNot(HaveOccurred())
 	}
 
-	// Then wait for it to be gone or deletion to have started
+	// Wait for namespace deletion to start
+	// Note: envtest doesn't support full namespace deletion (see https://book.kubebuilder.io/reference/envtest.html#testing-considerations)
+	// so we only wait for deletion to start (DeletionTimestamp set), not complete
 	Eventually(func(g Gomega) {
-		err := k8sClient.Get(ctx, client.ObjectKey{Name: *namespace}, desiredTestNamespace)
-		// Accept either NotFound (fully deleted) or DeletionTimestamp set (deletion in progress)
+		err := k8sClient.Get(ctx, client.ObjectKey{Name: namespace}, desiredTestNamespace)
 		g.Expect(apierrors.IsNotFound(err) || desiredTestNamespace.DeletionTimestamp != nil).To(BeTrue())
-	}).WithContext(ctx).Should(Succeed())
+	}, time.Second*5, time.Millisecond*250).WithContext(ctx).Should(Succeed())
 }
 
 func buildBasicGateway(gwName, ns string) *gwapiv1.Gateway {

@@ -52,7 +52,7 @@ var _ = Describe("APIProduct Controller: AuthPolicy Discovery", func() {
 	})
 
 	AfterEach(func(ctx SpecContext) {
-		deleteNamespaceWithContext(ctx, &testNamespace)
+		deleteNamespaceWithContext(ctx, testNamespace)
 	}, nodeTimeOut)
 
 	Context("When authpolicy targets httproute", func() {

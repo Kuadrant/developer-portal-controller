@@ -58,7 +58,7 @@ var _ = Describe("APIProduct Controller: OIDC Discovery", func() {
 	})
 
 	AfterEach(func(ctx SpecContext) {
-		deleteNamespaceWithContext(ctx, &testNamespace)
+		deleteNamespaceWithContext(ctx, testNamespace)
 	}, nodeTimeOut)
 
 	Context("When authpolicy has JWT authentication", func() {

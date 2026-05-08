@@ -65,7 +65,6 @@ type OpenAPISpecErr struct {
 
 // +kubebuilder:rbac:groups=devportal.kuadrant.io,resources=apiproducts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=devportal.kuadrant.io,resources=apiproducts/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=devportal.kuadrant.io,resources=apiproducts/finalizers,verbs=update
 
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes/status,verbs=get
@@ -134,7 +133,7 @@ func (r *APIProductReconciler) reconcileStatus(ctx context.Context, apiProductOb
 		return err
 	}
 
-	equalStatus := equality.Semantic.DeepEqual(newStatus, apiProductObj.Status)
+	equalStatus := equality.Semantic.DeepEqual(newStatus, &apiProductObj.Status)
 	if equalStatus && apiProductObj.Generation == apiProductObj.Status.ObservedGeneration {
 		logger.V(1).Info("apiproduct status unchanged, skipping update")
 		return nil

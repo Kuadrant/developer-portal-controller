@@ -70,7 +70,7 @@ var _ = Describe("APIProduct Controller", func() {
 	})
 
 	AfterEach(func(ctx SpecContext) {
-		deleteNamespaceWithContext(ctx, &testNamespace)
+		deleteNamespaceWithContext(ctx, testNamespace)
 	}, nodeTimeOut)
 
 	Context("When planpolicy targets httproute", func() {

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The APIKey CRD is part of the Developer Portal extension for Kuadrant. It represents a request for API access credentials by a developer for a specific APIProduct and plan tier. When approved, the APIKey creates a Kubernetes Secret containing the actual API key that can be used to authenticate requests. The APIKey resource manages the entire lifecycle of API access requests, from initial submission through approval/rejection to credential generation.
+The APIKey CRD is part of the Developer Portal extension for Kuadrant. It represents a request for API access credentials by a developer for a specific APIProduct and plan tier. The developer creates a Kubernetes Secret containing their API key in their own namespace, then creates an APIKey resource referencing that secret. When approved, the controller validates and registers the API key for use with the specified APIProduct. The APIKey resource manages the entire lifecycle of API access requests, from initial submission through approval/rejection to credential activation.
 
 ## APIKey
 
@@ -16,15 +16,23 @@ The APIKey CRD is part of the Developer Portal extension for Kuadrant. It repres
 | **Field**       | **Type**                                  | **Required** | **Description**                                                          |
 |-----------------|-------------------------------------------|:------------:|--------------------------------------------------------------------------|
 | `apiProductRef` | [APIProductReference](#apiproductreference) | Yes       | Reference to the APIProduct this API key provides access to             |
+| `secretRef`     | [LocalObjectReference](#localobjectreference) | Yes      | Reference to the secret containing the API key in the consumer's namespace |
 | `planTier`      | String                                    | Yes          | Tier of the plan (e.g., "premium", "basic", "enterprise")                |
-| `requestedBy`   | [RequestedBy](#requestedby)               | Yes          | Information about who requested the API key                              |
 | `useCase`       | String                                    | Yes          | Description of how the API key will be used                              |
+| `requestedBy`   | [RequestedBy](#requestedby)               | Yes          | Information about who requested the API key                              |
 
 ### APIProductReference
 
-| **Field** | **Type** | **Required** | **Description**                              |
-|-----------|----------|:------------:|----------------------------------------------|
-| `name`    | String   | Yes          | Name of the APIProduct in the same namespace |
+| **Field**   | **Type** | **Required** | **Description**                              |
+|-------------|----------|:------------:|----------------------------------------------|
+| `name`      | String   | Yes          | Name of the APIProduct                       |
+| `namespace` | String   | Yes          | Namespace of the APIProduct                  |
+
+### LocalObjectReference
+
+| **Field** | **Type** | **Required** | **Description**                                                      |
+|-----------|----------|:------------:|----------------------------------------------------------------------|
+| `name`    | String   | Yes          | Name of the secret in the same namespace containing the API key (must have an "api_key" entry) |
 
 ### RequestedBy
 
@@ -37,14 +45,10 @@ The APIKey CRD is part of the Developer Portal extension for Kuadrant. It repres
 
 | **Field**       | **Type**                          | **Description**                                                                   |
 |-----------------|-----------------------------------|-----------------------------------------------------------------------------------|
-| `phase`         | String                            | Current phase of the APIKey. Valid values: `Pending`, `Approved`, `Rejected`     |
-| `conditions`    | [][ConditionSpec](#conditionspec) | Represents the observations of the APIKey's current state                         |
-| `secretRef`     | [SecretReference](#secretreference) | Reference to the created Secret containing the API key (only when Approved)     |
-| `limits`        | [Limits](#limits)                 | Rate limits for the plan                                                          |
 | `apiHostname`   | String                            | Hostname from the HTTPRoute that the APIProduct references                        |
-| `reviewedBy`    | String                            | Who approved or rejected the request                                              |
-| `reviewedAt`    | Timestamp                         | When the request was reviewed                                                     |
-| `canReadSecret` | Boolean                           | Permission to read the APIKey's secret. Default: `true`                           |
+| `limits`        | [Limits](#limits)                 | Rate limits for the plan                                                          |
+| `authScheme`    | [AuthScheme](#authscheme)         | Authentication scheme discovered from the APIProduct's AuthPolicy                 |
+| `conditions`    | [][ConditionSpec](#conditionspec) | Represents the observations of the APIKey's current state                         |
 
 ### ConditionSpec
 
@@ -52,19 +56,19 @@ Standard Kubernetes condition type with the following fields:
 
 | **Field**            | **Type**  | **Description**                                                                   |
 |----------------------|-----------|-----------------------------------------------------------------------------------|
-| `type`               | String    | Condition type (e.g., `Ready`)                                                    |
+| `type`               | String    | Condition type. Valid types: `Pending`, `Approved`, `Denied`, `Failed`            |
 | `status`             | String    | Status of the condition: `True`, `False`, or `Unknown`                            |
 | `reason`             | String    | Unique, one-word, CamelCase reason for the condition's last transition            |
 | `message`            | String    | Human-readable message indicating details about the transition                    |
 | `lastTransitionTime` | Timestamp | Last time the condition transitioned from one status to another                   |
 | `observedGeneration` | Integer   | The .metadata.generation that the condition was set based upon                    |
 
-### SecretReference
+### AuthScheme
 
-| **Field** | **Type** | **Required** | **Description**                              |
-|-----------|----------|:------------:|----------------------------------------------|
-| `name`    | String   | Yes          | Name of the secret in the Authorino's namespace |
-| `key`     | String   | Yes          | The key of the secret to select from         |
+| **Field**            | **Type**               | **Description**                                                          |
+|----------------------|------------------------|--------------------------------------------------------------------------|
+| `authenticationSpec` | AuthenticationSpec     | API key authentication specification from the AuthPolicy                 |
+| `credentials`        | Credentials            | Credentials configuration (where to extract the API key from requests)   |
 
 ### Limits
 
@@ -85,32 +89,54 @@ Standard Kubernetes condition type with the following fields:
 
 ## High level example
 
+First, the developer creates a secret in their namespace with the API key:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: my-payment-api-key
+  namespace: developer-apps
+type: Opaque
+stringData:
+  api_key: "<api-key>"
+```
+
+Then, the developer creates an APIKey resource:
+
 ```yaml
 apiVersion: devportal.kuadrant.io/v1alpha1
 kind: APIKey
 metadata:
   name: developer-john-premium
-  namespace: payment-services
+  namespace: developer-apps
 spec:
   apiProductRef:
     name: payment-api
+    namespace: payment-services
+  secretRef:
+    name: my-payment-api-key
   planTier: premium
+  useCase: Building a mobile payment application for retail customers
   requestedBy:
     userId: john-doe-123
     email: john.doe@example.com
-  useCase: Building a mobile payment application for retail customers
 ```
 
-## Relationship to APIProduct and AuthPolicy
+## Relationship to APIProduct, AuthPolicy, and APIKeyRequest
 
 ### APIProduct
 
-APIKey **must** reference an existing APIProduct via `apiProductRef`. The APIProduct defines the API being accessed.
+APIKey **must** reference an existing APIProduct via `apiProductRef`. The APIProduct defines the API being accessed and contains approval workflow configuration.
 
 ### AuthPolicy
 
-AuthPolicy is applied to the HTTPRoute that the APIProduct references. When an APIKey is approved, a Kubernetes Secret is created with an annotation `secret.kuadrant.io/plan-id` value. The AuthPolicy validates incoming API requests by checking the API key against secrets that match specific label selectors.
+AuthPolicy is applied to the HTTPRoute that the APIProduct references. The APIKey controller discovers the authentication scheme from the AuthPolicy and populates it in the `status.authScheme` field. The AuthPolicy validates incoming API requests by checking the API key from the consumer's secret against configured selectors.
 
 ### PlanPolicy
 
-PlanPolicy defines the available tiers and their corresponding rate limits. When an APIKey specifies a `planTier`, the controller validates that this tier exists in the PlanPolicy attached to the HTTPRoute. If the tier is valid and the APIKey is approved, the Secret is annotated with `secret.kuadrant.io/plan-id: <planTier>`, allowing PlanPolicy's CEL predicates to match the request to the appropriate rate limits.
+PlanPolicy defines the available tiers and their corresponding rate limits. When an APIKey specifies a `planTier`, the controller validates that this tier exists in the PlanPolicy attached to the HTTPRoute. The discovered rate limits are populated in the `status.limits` field.
+
+### APIKeyRequest
+
+When an APIKey is created, the controller creates a shadow APIKeyRequest resource that represents the approval workflow. The APIKeyRequest is used to track the approval status and connect to APIKeyApproval resources when manual approval is required. Once approved, the controller updates the APIKey conditions to indicate approval status.

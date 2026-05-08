@@ -20,6 +20,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -251,4 +252,9 @@ func UncommentCode(filename, target, prefix string) error {
 	}
 
 	return nil
+}
+
+// StringReader converts a string to an io.Reader for use as stdin
+func StringReader(s string) io.Reader {
+	return strings.NewReader(s)
 }

@@ -19,11 +19,31 @@ package v1alpha1
 import (
 	authorinov1beta3 "github.com/kuadrant/authorino/api/v1beta3"
 	planpolicyv1alpha1 "github.com/kuadrant/kuadrant-operator/cmd/extensions/plan-policy/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+// APIKey condition types
+const (
+	// APIKeyConditionApproved indicates the APIKey has been approved by the API owner
+	APIKeyConditionApproved string = "Approved"
+
+	// APIKeyConditionDenied indicates the APIKey request has been denied by the API owner
+	APIKeyConditionDenied string = "Denied"
+
+	// APIKeyConditionFailed indicates the APIKey processing has failed
+	APIKeyConditionFailed string = "Failed"
+
+	// APIKeyConditionPending indicates the APIKey is waiting for approval
+	APIKeyConditionPending string = "Pending"
 )
 
 type APIProductReference struct {
 	Name string `json:"name"` // Just name for now, in the future we might want to add KGV.
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
 }
 
 // APIKeySpec defines the desired state of APIKey.
@@ -31,6 +51,13 @@ type APIKeySpec struct {
 	// Reference to the APIProduct this APIKey belongs to.
 	// +kubebuilder:validation:Required
 	APIProductRef APIProductReference `json:"apiProductRef"`
+
+	// SecretRef is a reference to the secret containing the API key
+	// Consumer creates this secret in their own namespace before creating APIKey
+	// The secret must contain an "api_key" entry with the value of the API key
+	// Controller reads API key from this secret on approval
+	// +kubebuilder:validation:Required
+	SecretRef corev1.LocalObjectReference `json:"secretRef"`
 
 	// PlanTier is the tier of the plan (e.g., "premium", "basic", "enterprise")
 	// +kubebuilder:validation:Required
@@ -59,35 +86,17 @@ type RequestedBy struct {
 
 // APIKeyStatus defines the observed state of APIKey.
 type APIKeyStatus struct {
-	// Phase represents the current phase of the APIKey
-	// Valid values are "Pending", "Approved", or "Rejected"
-	// +kubebuilder:validation:Enum=Pending;Approved;Rejected
+	// ObservedGeneration reflects the generation of the most recently observed spec.
 	// +optional
-	Phase string `json:"phase,omitempty"`
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
 	// APIHostname is the hostname from the HTTPRoute
 	// +optional
 	APIHostname string `json:"apiHostname,omitempty"`
 
-	// ReviewedBy indicates who approved or rejected the request
-	// +optional
-	ReviewedBy string `json:"reviewedBy,omitempty"`
-
-	// ReviewedAt is the timestamp when the request was reviewed
-	// +optional
-	ReviewedAt *metav1.Time `json:"reviewedAt,omitempty"`
-
 	// Limits contains the rate limits for the plan
 	// +optional
 	Limits *planpolicyv1alpha1.Limits `json:"limits,omitempty"`
-
-	// SecretRef is a reference to the created Secret
-	// +optional
-	SecretRef *SecretReference `json:"secretRef,omitempty"`
-
-	// CanReadSecret expresses the permission to read the APIKey's secret
-	// +kubebuilder:default=true
-	CanReadSecret bool `json:"canReadSecret,omitempty"`
 
 	// AuthScheme displays the APIKey AuthScheme
 	// +optional
@@ -96,15 +105,6 @@ type APIKeyStatus struct {
 	// Conditions represent the latest available observations of the APIKey's state
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-}
-
-// SecretReference contains a reference to a Secret.
-type SecretReference struct {
-	// The name of the secret in the Authorino's namespace to select from.
-	Name string `json:"name"`
-
-	// The key of the secret to select from.  Must be a valid secret key.
-	Key string `json:"key"`
 }
 
 // AuthScheme describes the APIKey AuthScheme defined in the Kuadrant AuthPolicy for the HTTPRoute targeting the APIProduct
@@ -116,7 +116,7 @@ type AuthScheme struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:shortName=apik
-// +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
+// +kubebuilder:printcolumn:name="Approved",type=string,JSONPath=`.status.conditions[?(@.type=="Approved")].status`
 // +kubebuilder:printcolumn:name="API",type=string,JSONPath=`.spec.apiProductRef.name`
 // +kubebuilder:printcolumn:name="Plan",type=string,JSONPath=`.spec.planTier`
 // +kubebuilder:printcolumn:name="User",type=string,JSONPath=`.spec.requestedBy.userId`
@@ -129,6 +129,30 @@ type APIKey struct {
 
 	Spec   APIKeySpec   `json:"spec,omitempty"`
 	Status APIKeyStatus `json:"status,omitempty"`
+}
+
+func (a *APIKey) APIProductKey() client.ObjectKey {
+	if a == nil {
+		return client.ObjectKey{}
+	}
+
+	apiProductNamespace := a.Namespace
+	if a.Spec.APIProductRef.Namespace != "" {
+		apiProductNamespace = a.Spec.APIProductRef.Namespace
+	}
+	return client.ObjectKey{
+		Name:      a.Spec.APIProductRef.Name,
+		Namespace: apiProductNamespace,
+	}
+}
+
+func (a *APIKey) IsApproved() bool {
+	if a == nil {
+		return false
+	}
+
+	approvedCondition := meta.FindStatusCondition(a.Status.Conditions, APIKeyConditionApproved)
+	return approvedCondition != nil && approvedCondition.Status == metav1.ConditionTrue
 }
 
 // +kubebuilder:object:root=true
