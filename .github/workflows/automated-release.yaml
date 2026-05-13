@@ -24,46 +24,13 @@ jobs:
           ref: ${{ github.event.inputs.gitRef }}
           token: ${{ secrets.KUADRANT_DEV_PAT }}
 
-      - name: Validate version format
-        run: |
-          VERSION="${{ github.event.inputs.version }}"
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]]; then
-            echo "Error: Version '$VERSION' is not valid semver format (expected: X.Y.Z or X.Y.Z-suffix)"
-            exit 1
-          fi
-          echo "Version $VERSION is valid"
-
-      - name: Create release branch
-        id: create-release-branch
-        run: |
-          base_branch=release-v$(echo "${{ github.event.inputs.version }}" | sed 's/[+-].*//; s/\.[0-9]*$//')
-          echo "BASE_BRANCH=$base_branch" >> $GITHUB_ENV
-
-          if git ls-remote --exit-code --heads origin $base_branch; then
-            echo "Base branch $base_branch already exists"
-            git fetch origin $base_branch
-            git checkout $base_branch
-          else
-            echo "Creating branch $base_branch"
-            git checkout -b "$base_branch"
-            git push --set-upstream origin "$base_branch"
-          fi
-
-      - name: Update VERSION in Makefile
-        run: |
-          VERSION="${{ github.event.inputs.version }}"
-          sed -i "s/^VERSION ?= .*/VERSION ?= $VERSION/" Makefile
-
-          echo "Updated Makefile VERSION to $VERSION"
-          grep "^VERSION" Makefile
-
-      - name: Update QUAY_IMAGE_EXPIRY in Makefile
-        run: |
-          QUAY_IMAGE_EXPIRY="never"
-          sed -i "s/^QUAY_IMAGE_EXPIRY ?= .*/QUAY_IMAGE_EXPIRY ?= $QUAY_IMAGE_EXPIRY/" Makefile
-
-          echo "Updated Makefile QUAY_IMAGE_EXPIRY to $QUAY_IMAGE_EXPIRY"
-          grep "^QUAY_IMAGE_EXPIRY" Makefile
+      - name: Prepare release branch
+        id: prepare-branch
+        uses: ./.github/actions/prepare-release-branch
+        with:
+          version: ${{ github.event.inputs.version }}
+          push-branch: 'true'
+          expiry: 'never'
 
       - name: Create Pull Request
         if: ${{ !env.ACT }}
@@ -74,7 +41,7 @@ jobs:
           committer: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
           author: ${{ github.actor }} <${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com>
           signoff: true
-          base: ${{ env.BASE_BRANCH }}
+          base: ${{ steps.prepare-branch.outputs.branch-name }}
           branch: release-v${{ github.event.inputs.version }}
           delete-branch: true
           title: "[Release] Developer Portal Controller v${{ github.event.inputs.version }}"

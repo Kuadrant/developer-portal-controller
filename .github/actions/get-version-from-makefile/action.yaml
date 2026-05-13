@@ -1,0 +1,24 @@
+name: 'Get Version from Makefile'
+description: 'Extracts VERSION from Makefile and formats tag'
+outputs:
+  version:
+    description: 'Version from Makefile'
+    value: ${{ steps.get-version.outputs.version }}
+  tag:
+    description: 'Git tag with v prefix'
+    value: ${{ steps.get-version.outputs.tag }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Get version from Makefile
+      id: get-version
+      shell: bash
+      run: |
+        VERSION=$(grep -m 1 "^VERSION ?=" Makefile | sed 's/VERSION ?= //' | xargs)
+        if [[ -z "$VERSION" ]]; then
+          echo "::error::Could not extract VERSION from Makefile"
+          exit 1
+        fi
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+        echo "Releasing version: $VERSION (tag: v$VERSION)"
