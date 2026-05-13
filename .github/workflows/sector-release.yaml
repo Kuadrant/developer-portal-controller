@@ -41,7 +41,11 @@ jobs:
           git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
           git config --global user.name "${{ github.actor}}"
 
-          git commit . -s -m "Prepare release ${{ github.event.inputs.version }}"
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "No changes to commit; pushing branch as-is."
+          else
+            git commit . -s -m "Prepare release ${{ github.event.inputs.version }}"
+          fi
           git push --set-upstream origin "${{ steps.prepare-branch.outputs.branch-name }}"
 
   release:
