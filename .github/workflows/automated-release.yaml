@@ -42,7 +42,7 @@ jobs:
           author: ${{ github.actor }} <${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com>
           signoff: true
           base: ${{ steps.prepare-branch.outputs.branch-name }}
-          branch: release-v${{ github.event.inputs.version }}
+          branch: release-${{ github.event.inputs.version }}
           delete-branch: true
           title: "[Release] Developer Portal Controller v${{ github.event.inputs.version }}"
           body: |

@@ -25,7 +25,7 @@ runs:
         INPUT_VERSION: ${{ inputs.version }}
         INPUT_PUSH: ${{ inputs.push }}
       run: |
-        base_branch=release-v$(echo "$INPUT_VERSION" | sed 's/[+-].*//; s/\.[0-9]*$//')
+        base_branch=release-$(echo "$INPUT_VERSION" | sed 's/[+-].*//; s/\.[0-9]*$//')
         echo "branch-name=$base_branch" >> "$GITHUB_OUTPUT"
 
         if git ls-remote --exit-code --heads origin "$base_branch"; then
