@@ -9,17 +9,17 @@ The version is defined in the `Makefile`:
 VERSION ?= X.Y.Z
 ```
 
-**Important:** The `main` branch always has `VERSION ?= 0.0.0` as a placeholder. The actual version is only set on release branches (e.g., `release-v0.1`). This follows the same pattern as [kuadrant-operator](https://github.com/Kuadrant/kuadrant-operator). When building release images, the version is read from the release branch where the automated workflow updated it.
+**Important:** The `main` branch always has `VERSION ?= 0.0.0` as a placeholder. The actual version is only set on release branches (e.g., `release-0.1`). This follows the same pattern as [kuadrant-operator](https://github.com/Kuadrant/kuadrant-operator). When building release images, the version is read from the release branch where the automated workflow updated it.
 
 ## Automated Workflow (Recommended)
 
 _**IMPORTANT:**_
-For RC2+ or patch releases, set `gitRef` to the existing release branch (e.g., `release-v0.1`), not `main`.
+For RC2+ or patch releases, set `gitRef` to the existing release branch (e.g., `release-0.1`), not `main`.
 The workflow picks up all history from the specified gitRef - cherry-pick any required fixes to the release branch before triggering the workflow.
 
 ### Notes
 * The automated workflow is best suited for RC1 of a new point release from `main`.
-* For patch releases (e.g., 0.1.1): Cherry-pick only the bug fix to the release branch, then run the workflow with `gitRef: release-v0.1`.
+* For patch releases (e.g., 0.1.1): Cherry-pick only the bug fix to the release branch, then run the workflow with `gitRef: release-0.1`.
 * It's not possible to cherry-pick commits within the workflow - it will include all history from the gitRef.
 
 ### Steps
@@ -48,14 +48,14 @@ To release a patch (e.g., `0.1.1` after `0.1.0` with a bug fix from `main`):
 
 1. **Cherry-pick the fix to the release branch**:
    ```bash
-   git checkout release-v0.1
-   git pull origin release-v0.1
+   git checkout release-0.1
+   git pull origin release-0.1
    git cherry-pick <commit-sha>    # Only the bug fix, not new features
-   git push origin release-v0.1
+   git push origin release-0.1
    ```
 
 2. **Run the Automated Release workflow**:
-   - **gitRef**: `release-v0.1` (the release branch, NOT main)
+   - **gitRef**: `release-0.1` (the release branch, NOT main)
    - **version**: `0.1.1`
 
 3. **Review and merge the PR**, then the release will be created automatically.
