@@ -18,7 +18,7 @@ The APIKey CRD is part of the Developer Portal extension for Kuadrant. It repres
 | `apiProductRef` | [APIProductReference](#apiproductreference) | Yes       | Reference to the APIProduct this API key provides access to             |
 | `secretRef`     | [LocalObjectReference](#localobjectreference) | Yes      | Reference to the secret containing the API key in the consumer's namespace |
 | `planTier`      | String                                    | Yes          | Tier of the plan (e.g., "premium", "basic", "enterprise")                |
-| `useCase`       | String                                    | Yes          | Description of how the API key will be used                              |
+| `useCase`       | String                                    | No           | Description of how the API key will be used                              |
 | `requestedBy`   | [RequestedBy](#requestedby)               | Yes          | Information about who requested the API key                              |
 
 ### APIProductReference

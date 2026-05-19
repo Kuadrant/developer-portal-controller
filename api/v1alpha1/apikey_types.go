@@ -64,8 +64,8 @@ type APIKeySpec struct {
 	PlanTier string `json:"planTier"`
 
 	// UseCase describes how the API key will be used
-	// +kubebuilder:validation:Required
-	UseCase string `json:"useCase"`
+	// +optional
+	UseCase string `json:"useCase,omitempty"`
 
 	// RequestedBy contains information about who requested the API key
 	// +kubebuilder:validation:Required
