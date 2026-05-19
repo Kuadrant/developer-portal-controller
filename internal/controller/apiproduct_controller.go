@@ -452,12 +452,26 @@ func (r *APIProductReconciler) openAPIStatus(ctx context.Context, apiProductObj 
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, openAPIURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create HTTP request for OpenAPI spec: %w", err)
+		return &devportalv1alpha1.OpenAPIStatus{
+				Raw:          "",
+				LastSyncTime: metav1.Now(),
+				MaxSizeUsed:  r.OpenAPISpecMaxSize},
+			&OpenAPISpecErr{
+				Reason:  "RequestCreationFailed",
+				Message: fmt.Sprintf("failed to create HTTP request for OpenAPI spec: %v. Controller will not retry; the spec needs to change", err),
+			}
 	}
 
 	resp, err := r.HTTPClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch OpenAPI spec from %s: %w", openAPIURL, err)
+		return &devportalv1alpha1.OpenAPIStatus{
+				Raw:          "",
+				LastSyncTime: metav1.Now(),
+				MaxSizeUsed:  r.OpenAPISpecMaxSize},
+			&OpenAPISpecErr{
+				Reason:  "FetchFailed",
+				Message: fmt.Sprintf("failed to fetch OpenAPI spec from %s: %v. Controller will not retry; the spec needs to change", openAPIURL, err),
+			}
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
@@ -472,13 +486,20 @@ func (r *APIProductReconciler) openAPIStatus(ctx context.Context, apiProductObj 
 				MaxSizeUsed:  r.OpenAPISpecMaxSize},
 			&OpenAPISpecErr{
 				Reason:  "FetchFailed",
-				Message: fmt.Sprintf("failed to fetch OpenAPI spec from %s: unexpected status code %d", openAPIURL, resp.StatusCode),
+				Message: fmt.Sprintf("failed to fetch OpenAPI spec from %s: unexpected status code %d. Controller will not retry; the spec needs to change", openAPIURL, resp.StatusCode),
 			}
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read OpenAPI spec response body: %w", err)
+		return &devportalv1alpha1.OpenAPIStatus{
+				Raw:          "",
+				LastSyncTime: metav1.Now(),
+				MaxSizeUsed:  r.OpenAPISpecMaxSize},
+			&OpenAPISpecErr{
+				Reason:  "ReadFailed",
+				Message: fmt.Sprintf("failed to read OpenAPI spec response body: %v. Controller will not retry; the spec needs to change", err),
+			}
 	}
 
 	openAPISize := len(body)
@@ -492,7 +513,7 @@ func (r *APIProductReconciler) openAPIStatus(ctx context.Context, apiProductObj 
 				MaxSizeUsed:  r.OpenAPISpecMaxSize,
 			}, &OpenAPISpecErr{
 				Reason:  "SpecSizeTooLarge",
-				Message: fmt.Sprintf("OpenAPI spec exceeds size limit (%d bytes)", maxSize),
+				Message: fmt.Sprintf("OpenAPI spec exceeds size limit (%d bytes). Controller will not retry; the spec needs to change", maxSize),
 			}
 
 	}
