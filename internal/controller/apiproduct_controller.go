@@ -458,7 +458,7 @@ func (r *APIProductReconciler) openAPIStatus(ctx context.Context, apiProductObj 
 				MaxSizeUsed:  r.OpenAPISpecMaxSize},
 			&OpenAPISpecErr{
 				Reason:  "RequestCreationFailed",
-				Message: fmt.Sprintf("failed to create HTTP request for OpenAPI spec: %v", err),
+				Message: fmt.Sprintf("failed to create HTTP request for OpenAPI spec: %v. Controller will not retry; the spec needs to change", err),
 			}
 	}
 
@@ -470,7 +470,7 @@ func (r *APIProductReconciler) openAPIStatus(ctx context.Context, apiProductObj 
 				MaxSizeUsed:  r.OpenAPISpecMaxSize},
 			&OpenAPISpecErr{
 				Reason:  "FetchFailed",
-				Message: fmt.Sprintf("failed to fetch OpenAPI spec from %s: %v", openAPIURL, err),
+				Message: fmt.Sprintf("failed to fetch OpenAPI spec from %s: %v. Controller will not retry; the spec needs to change", openAPIURL, err),
 			}
 	}
 	defer func() {
@@ -486,7 +486,7 @@ func (r *APIProductReconciler) openAPIStatus(ctx context.Context, apiProductObj 
 				MaxSizeUsed:  r.OpenAPISpecMaxSize},
 			&OpenAPISpecErr{
 				Reason:  "FetchFailed",
-				Message: fmt.Sprintf("failed to fetch OpenAPI spec from %s: unexpected status code %d", openAPIURL, resp.StatusCode),
+				Message: fmt.Sprintf("failed to fetch OpenAPI spec from %s: unexpected status code %d. Controller will not retry; the spec needs to change", openAPIURL, resp.StatusCode),
 			}
 	}
 
@@ -498,7 +498,7 @@ func (r *APIProductReconciler) openAPIStatus(ctx context.Context, apiProductObj 
 				MaxSizeUsed:  r.OpenAPISpecMaxSize},
 			&OpenAPISpecErr{
 				Reason:  "ReadFailed",
-				Message: fmt.Sprintf("failed to read OpenAPI spec response body: %v", err),
+				Message: fmt.Sprintf("failed to read OpenAPI spec response body: %v. Controller will not retry; the spec needs to change", err),
 			}
 	}
 
@@ -513,7 +513,7 @@ func (r *APIProductReconciler) openAPIStatus(ctx context.Context, apiProductObj 
 				MaxSizeUsed:  r.OpenAPISpecMaxSize,
 			}, &OpenAPISpecErr{
 				Reason:  "SpecSizeTooLarge",
-				Message: fmt.Sprintf("OpenAPI spec exceeds size limit (%d bytes)", maxSize),
+				Message: fmt.Sprintf("OpenAPI spec exceeds size limit (%d bytes). Controller will not retry; the spec needs to change", maxSize),
 			}
 
 	}
