@@ -89,35 +89,11 @@ var _ = Describe("APIKeyApproval Garbage Collection", Ordered, func() {
 	})
 
 	BeforeAll(func() {
-		By("creating the owner namespace")
-		cmd := exec.Command("kubectl", "create", "ns", ownerNamespace)
-		_, err := utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to create owner namespace")
+		SetDefaultEventuallyTimeout(2 * time.Minute)
+		SetDefaultEventuallyPollingInterval(2 * time.Second)
 
-		By("creating the consumer namespace")
-		cmd = exec.Command("kubectl", "create", "ns", consumerNamespace)
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to create consumer namespace")
-
-		By("creating the kuadrant namespace")
-		cmd = exec.Command("kubectl", "create", "ns", kuadrantNamespace)
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to create kuadrant namespace")
-
-		By("creating the kuadrant instance")
-		kuadrantYAML := fmt.Sprintf(`
-apiVersion: kuadrant.io/v1beta1
-kind: Kuadrant
-metadata:
-  name: kuadrant
-  namespace: %s
-spec: {}
-`, kuadrantNamespace)
-
-		cmd = exec.Command("kubectl", "apply", "-f", "-")
-		cmd.Stdin = utils.StringReader(kuadrantYAML)
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to create Kuadrant")
+		By("setting up namespaces and Kuadrant instance")
+		SetupNamespacesAndKuadrant(ownerNamespace, consumerNamespace, kuadrantNamespace)
 	})
 
 	AfterAll(func() {
@@ -133,9 +109,6 @@ spec: {}
 		cmd = exec.Command("kubectl", "delete", "ns", consumerNamespace, "--wait=false")
 		_, _ = utils.Run(cmd)
 	})
-
-	SetDefaultEventuallyTimeout(2 * time.Minute)
-	SetDefaultEventuallyPollingInterval(2 * time.Second)
 
 	Context("APIKeyApproval owner reference and garbage collection", func() {
 		It("should garbage collect APIKeyApproval when APIKey is deleted", func() {

@@ -45,6 +45,11 @@ const metricsRoleBindingName = "developer-portal-controller-metrics-binding"
 var _ = Describe("Manager", Ordered, func() {
 	var controllerPodName string
 
+	BeforeAll(func() {
+		SetDefaultEventuallyTimeout(2 * time.Minute)
+		SetDefaultEventuallyPollingInterval(time.Second)
+	})
+
 	AfterAll(func() {
 		By("cleaning up the curl pod for metrics")
 		cmd := exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace)
@@ -97,9 +102,6 @@ var _ = Describe("Manager", Ordered, func() {
 			}
 		}
 	})
-
-	SetDefaultEventuallyTimeout(2 * time.Minute)
-	SetDefaultEventuallyPollingInterval(time.Second)
 
 	Context("Manager", func() {
 		It("should run successfully", func() {
