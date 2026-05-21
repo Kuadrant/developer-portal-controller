@@ -27,13 +27,11 @@ import (
 	"github.com/kuadrant/developer-portal-controller/test/utils"
 )
 
-var _ = Describe("Automatic Approval", Ordered, func() {
+var _ = Describe("APIKeyApproval Garbage Collection", Ordered, func() {
 	const (
-		ownerNamespace      = "api-owner-test"
-		consumerNamespace   = "api-consumer-test"
-		kuadrantNamespace   = "kuadrant-ns"
-		apiProductName      = "auto-approve-api"
-		apiKeyName          = "test-auto-apikey"
+		ownerNamespace      = "gc-owner-test"
+		consumerNamespace   = "gc-consumer-test"
+		kuadrantNamespace   = "gc-kuadrant-ns"
 		controllerNamespace = "developer-portal-controller-system"
 	)
 
@@ -87,15 +85,6 @@ var _ = Describe("Automatic Approval", Ordered, func() {
 			} else {
 				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get events in %s: %s\n", consumerNamespace, err)
 			}
-
-			By("Fetching controller manager pod description")
-			cmd = exec.Command("kubectl", "describe", "pod", controllerPodName, "-n", controllerNamespace)
-			podDescription, err := utils.Run(cmd)
-			if err == nil {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Pod description:\n%s\n", podDescription)
-			} else {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to describe controller pod: %s\n", err)
-			}
 		}
 	})
 
@@ -121,14 +110,14 @@ var _ = Describe("Automatic Approval", Ordered, func() {
 		_, _ = utils.Run(cmd)
 	})
 
-	Context("APIKey with automatic approval mode", func() {
-		It("should create APIKeyRequest, automatic approval, and approve the APIKey", func() {
+	Context("APIKeyApproval owner reference and garbage collection", func() {
+		It("should garbage collect APIKeyApproval when APIKey is deleted", func() {
 			By("creating an HTTPRoute as a reference target")
 			httpRouteYAML := fmt.Sprintf(`
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: test-route
+  name: test-route-gc
   namespace: %s
 spec:
   parentRefs:
@@ -153,13 +142,13 @@ spec:
 apiVersion: kuadrant.io/v1
 kind: AuthPolicy
 metadata:
-  name: test-auth-policy
+  name: test-auth-policy-gc
   namespace: %s
 spec:
   targetRef:
     group: gateway.networking.k8s.io
     kind: HTTPRoute
-    name: test-route
+    name: test-route-gc
   rules:
     authentication:
       "api-key":
@@ -199,7 +188,7 @@ spec:
 				}
 			}`
 
-			cmd = exec.Command("kubectl", "patch", "authpolicy", "test-auth-policy",
+			cmd = exec.Command("kubectl", "patch", "authpolicy", "test-auth-policy-gc",
 				"-n", ownerNamespace,
 				"--type=merge",
 				"--subresource=status",
@@ -208,6 +197,7 @@ spec:
 			Expect(err).NotTo(HaveOccurred(), "Failed to update AuthPolicy status")
 
 			By("creating an APIProduct with automatic approval mode")
+			apiProductGCName := "gc-test-api"
 			apiProductYAML := fmt.Sprintf(`
 apiVersion: devportal.kuadrant.io/v1alpha1
 kind: APIProduct
@@ -215,32 +205,23 @@ metadata:
   name: %s
   namespace: %s
 spec:
-  displayName: "Auto Approval Test API"
-  description: "API Product for testing automatic approval"
+  displayName: "Garbage Collection Test API"
+  description: "API Product for testing garbage collection"
   approvalMode: automatic
   publishStatus: Published
   targetRef:
     group: gateway.networking.k8s.io
     kind: HTTPRoute
-    name: test-route
-`, apiProductName, ownerNamespace)
+    name: test-route-gc
+`, apiProductGCName, ownerNamespace)
 
 			cmd = exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = utils.StringReader(apiProductYAML)
 			_, err = utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred(), "Failed to create APIProduct")
 
-			By("verifying APIProduct was created")
-			verifyAPIProductCreated := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "apiproduct", apiProductName,
-					"-n", ownerNamespace, "-o", "jsonpath={.metadata.name}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal(apiProductName))
-			}
-			Eventually(verifyAPIProductCreated).Should(Succeed())
-
 			By("creating a secret with API key in the consumer namespace")
+			apiKeyGCName := "gc-test-apikey"
 			secretYAML := fmt.Sprintf(`
 apiVersion: v1
 kind: Secret
@@ -249,8 +230,8 @@ metadata:
   namespace: %s
 type: Opaque
 stringData:
-  api_key: test-api-key-value-12345
-`, apiKeyName, consumerNamespace)
+  api_key: gc-test-key-value-12345
+`, apiKeyGCName, consumerNamespace)
 
 			cmd = exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = utils.StringReader(secretYAML)
@@ -271,33 +252,23 @@ spec:
   secretRef:
     name: %s-secret
   planTier: premium
-  useCase: "Testing automatic approval flow"
+  useCase: "Testing garbage collection"
   requestedBy:
-    userId: test-user-123
-    email: test@example.com
-`, apiKeyName, consumerNamespace, apiProductName, ownerNamespace, apiKeyName)
+    userId: gc-test-user-123
+    email: gctest@example.com
+`, apiKeyGCName, consumerNamespace, apiProductGCName, ownerNamespace, apiKeyGCName)
 
 			cmd = exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = utils.StringReader(apiKeyYAML)
 			_, err = utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred(), "Failed to create APIKey")
 
-			By("verifying APIKey was created")
-			verifyAPIKeyCreated := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "apikey", apiKeyName,
-					"-n", consumerNamespace, "-o", "jsonpath={.metadata.name}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal(apiKeyName))
-			}
-			Eventually(verifyAPIKeyCreated).Should(Succeed())
-
 			By("verifying APIKeyRequest was created in the owner namespace")
 			var apiKeyRequestName string
 			verifyAPIKeyRequestCreated := func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "apikeyrequest",
 					"-n", ownerNamespace,
-					"-o", "jsonpath={.items[0].metadata.name}")
+					"-o", "jsonpath={.items[?(@.spec.apiKeyRef.name=='"+apiKeyGCName+"')].metadata.name}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(output).NotTo(BeEmpty(), "APIKeyRequest should be created")
@@ -312,59 +283,65 @@ spec:
 					"-n", ownerNamespace, "-o", "jsonpath={.metadata.name}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal(apiKeyApprovalName), "APIKeyApproval should be created with deterministic name")
+				g.Expect(output).To(Equal(apiKeyApprovalName), "APIKeyApproval should be created")
 			}
 			Eventually(verifyApprovalCreated).Should(Succeed())
 
-			By("verifying the approval was created by 'system'")
-			verifySystemReviewer := func(g Gomega) {
+			By("verifying APIKeyApproval has owner reference to APIKeyRequest")
+			verifyOwnerReference := func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "apikeyapproval", apiKeyApprovalName,
-					"-n", ownerNamespace, "-o", "jsonpath={.spec.reviewedBy}")
+					"-n", ownerNamespace,
+					"-o", "jsonpath={.metadata.ownerReferences[0].name}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("system"), "APIKeyApproval should be reviewed by 'system'")
+				g.Expect(output).To(Equal(apiKeyRequestName), "APIKeyApproval should have owner reference to APIKeyRequest")
 			}
-			Eventually(verifySystemReviewer).Should(Succeed())
+			Eventually(verifyOwnerReference).Should(Succeed())
 
-			By("verifying the approval is approved")
-			verifyApproved := func(g Gomega) {
+			By("verifying owner reference kind is APIKeyRequest")
+			verifyOwnerKind := func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "apikeyapproval", apiKeyApprovalName,
-					"-n", ownerNamespace, "-o", "jsonpath={.spec.approved}")
+					"-n", ownerNamespace,
+					"-o", "jsonpath={.metadata.ownerReferences[0].kind}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("true"), "APIKeyApproval should be approved")
+				g.Expect(output).To(Equal("APIKeyRequest"), "Owner reference kind should be APIKeyRequest")
 			}
-			Eventually(verifyApproved).Should(Succeed())
+			Eventually(verifyOwnerKind).Should(Succeed())
 
-			By("verifying the approval reason is AutoApproved")
-			verifyReason := func(g Gomega) {
+			By("verifying owner reference controller is set to true")
+			verifyOwnerController := func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "apikeyapproval", apiKeyApprovalName,
-					"-n", ownerNamespace, "-o", "jsonpath={.spec.reason}")
+					"-n", ownerNamespace,
+					"-o", "jsonpath={.metadata.ownerReferences[0].controller}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("AutoApproved"), "APIKeyApproval reason should be AutoApproved")
+				g.Expect(output).To(Equal("true"), "Owner reference controller should be true")
 			}
-			Eventually(verifyReason).Should(Succeed())
+			Eventually(verifyOwnerController).Should(Succeed())
 
-			By("verifying APIKeyRequest gets Approved condition")
-			verifyRequestApproved := func(g Gomega) {
+			By("deleting the APIKey")
+			cmd = exec.Command("kubectl", "delete", "apikey", apiKeyGCName, "-n", consumerNamespace)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to delete APIKey")
+
+			By("verifying APIKeyRequest is deleted")
+			verifyAPIKeyRequestDeleted := func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "apikeyrequest", apiKeyRequestName,
-					"-n", ownerNamespace, "-o", "jsonpath={.status.conditions[?(@.type=='Approved')].status}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("True"), "APIKeyRequest should have Approved=True condition")
+					"-n", ownerNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred(), "APIKeyRequest should be deleted")
 			}
-			Eventually(verifyRequestApproved).Should(Succeed())
+			Eventually(verifyAPIKeyRequestDeleted, 30*time.Second).Should(Succeed())
 
-			By("verifying APIKey eventually gets Approved condition")
-			verifyAPIKeyApproved := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "apikey", apiKeyName,
-					"-n", consumerNamespace, "-o", "jsonpath={.status.conditions[?(@.type=='Approved')].status}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("True"), "APIKey should have Approved=True condition")
+			By("verifying APIKeyApproval is garbage collected")
+			verifyApprovalDeleted := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "apikeyapproval", apiKeyApprovalName,
+					"-n", ownerNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred(), "APIKeyApproval should be garbage collected")
 			}
-			Eventually(verifyAPIKeyApproved).Should(Succeed())
+			Eventually(verifyApprovalDeleted, 30*time.Second).Should(Succeed())
 		})
 	})
 })

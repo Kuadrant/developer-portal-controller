@@ -18,8 +18,11 @@ rules:
   - devportal.kuadrant.io
   resources:
   - apikeyapprovals
+  - apikeyrequests
+  - apiproducts
   verbs:
   - create
+  - delete
   - get
   - list
   - patch
@@ -36,19 +39,6 @@ rules:
   - get
   - patch
   - update
-- apiGroups:
-  - devportal.kuadrant.io
-  resources:
-  - apikeyrequests
-  - apiproducts
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
 - apiGroups:
   - devportal.kuadrant.io
   resources:

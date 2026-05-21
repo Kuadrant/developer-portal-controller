@@ -38,7 +38,7 @@ type APIKeyApprovalReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=devportal.kuadrant.io,resources=apikeyapprovals,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=devportal.kuadrant.io,resources=apikeyapprovals,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=devportal.kuadrant.io,resources=apikeyrequests,verbs=get;list;watch
 
 // Reconcile handles reconciling all APIKeyApprovals in a single call. Any resource event should enqueue the
