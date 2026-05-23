@@ -125,7 +125,6 @@ func (r *APIKeyApprovalReconciler) reconcileOwnerReference(ctx context.Context, 
 
 	// Update the APIKeyApproval with the owner reference
 	if err := r.Update(ctx, approval); err != nil {
-		logger.Error(err, "Failed to update APIKeyApproval with owner reference")
 		return err
 	}
 
