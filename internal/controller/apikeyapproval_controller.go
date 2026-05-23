@@ -40,6 +40,7 @@ type APIKeyApprovalReconciler struct {
 
 // +kubebuilder:rbac:groups=devportal.kuadrant.io,resources=apikeyapprovals,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=devportal.kuadrant.io,resources=apikeyrequests,verbs=get;list;watch
+// +kubebuilder:rbac:groups=devportal.kuadrant.io,resources=apikeyrequests/finalizers,verbs=update
 
 // Reconcile handles reconciling all APIKeyApprovals in a single call. Any resource event should enqueue the
 // same reconcile.Request containing this controller name, i.e. "apikeyapproval". This allows multiple resource updates to
