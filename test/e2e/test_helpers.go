@@ -60,15 +60,21 @@ spec: {}
 func CleanupNamespaces(ownerNamespace, consumerNamespace, kuadrantNamespace string) {
 	ginkgo.By("cleaning up kuadrant namespace")
 	cmd := exec.Command("kubectl", "delete", "ns", kuadrantNamespace, "--wait=false")
-	_, _ = utils.Run(cmd)
+	output, err := utils.Run(cmd)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+		"Failed to delete kuadrant namespace %s: %s", kuadrantNamespace, output)
 
 	ginkgo.By("cleaning up owner namespace")
 	cmd = exec.Command("kubectl", "delete", "ns", ownerNamespace, "--wait=false")
-	_, _ = utils.Run(cmd)
+	output, err = utils.Run(cmd)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+		"Failed to delete owner namespace %s: %s", ownerNamespace, output)
 
 	ginkgo.By("cleaning up consumer namespace")
 	cmd = exec.Command("kubectl", "delete", "ns", consumerNamespace, "--wait=false")
-	_, _ = utils.Run(cmd)
+	output, err = utils.Run(cmd)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+		"Failed to delete consumer namespace %s: %s", consumerNamespace, output)
 }
 
 // LogDebugInfoOnFailure logs controller logs and events when a test fails
@@ -88,24 +94,27 @@ func LogDebugInfoOnFailure(ownerNamespace, consumerNamespace, controllerNamespac
 		"-n", controllerNamespace,
 	)
 	podOutput, err := utils.Run(cmd)
+	controllerPodName := ""
 	if err != nil {
 		_, _ = fmt.Fprintf(ginkgo.GinkgoWriter, "Failed to get controller pod name: %s\n", err)
-		return
-	}
-	podNames := utils.GetNonEmptyLines(podOutput)
-	if len(podNames) == 0 {
-		_, _ = fmt.Fprintf(ginkgo.GinkgoWriter, "No controller pod found\n")
-		return
-	}
-	controllerPodName := podNames[0]
-
-	ginkgo.By("Fetching controller manager pod logs")
-	cmd = exec.Command("kubectl", "logs", controllerPodName, "-n", controllerNamespace)
-	controllerLogs, err := utils.Run(cmd)
-	if err == nil {
-		_, _ = fmt.Fprintf(ginkgo.GinkgoWriter, "Controller logs:\n%s\n", controllerLogs)
 	} else {
-		_, _ = fmt.Fprintf(ginkgo.GinkgoWriter, "Failed to get Controller logs: %s\n", err)
+		podNames := utils.GetNonEmptyLines(podOutput)
+		if len(podNames) == 0 {
+			_, _ = fmt.Fprintf(ginkgo.GinkgoWriter, "No controller pod found\n")
+		} else {
+			controllerPodName = podNames[0]
+		}
+	}
+
+	if controllerPodName != "" {
+		ginkgo.By("Fetching controller manager pod logs")
+		cmd = exec.Command("kubectl", "logs", controllerPodName, "-n", controllerNamespace)
+		controllerLogs, err := utils.Run(cmd)
+		if err == nil {
+			_, _ = fmt.Fprintf(ginkgo.GinkgoWriter, "Controller logs:\n%s\n", controllerLogs)
+		} else {
+			_, _ = fmt.Fprintf(ginkgo.GinkgoWriter, "Failed to get Controller logs: %s\n", err)
+		}
 	}
 
 	ginkgo.By("Fetching Kubernetes events in owner namespace")
@@ -126,13 +135,15 @@ func LogDebugInfoOnFailure(ownerNamespace, consumerNamespace, controllerNamespac
 		_, _ = fmt.Fprintf(ginkgo.GinkgoWriter, "Failed to get events in %s: %s\n", consumerNamespace, err)
 	}
 
-	ginkgo.By("Fetching controller manager pod description")
-	cmd = exec.Command("kubectl", "describe", "pod", controllerPodName, "-n", controllerNamespace)
-	podDescription, err := utils.Run(cmd)
-	if err == nil {
-		_, _ = fmt.Fprintf(ginkgo.GinkgoWriter, "Pod description:\n%s\n", podDescription)
-	} else {
-		_, _ = fmt.Fprintf(ginkgo.GinkgoWriter, "Failed to describe controller pod: %s\n", err)
+	if controllerPodName != "" {
+		ginkgo.By("Fetching controller manager pod description")
+		cmd = exec.Command("kubectl", "describe", "pod", controllerPodName, "-n", controllerNamespace)
+		podDescription, err := utils.Run(cmd)
+		if err == nil {
+			_, _ = fmt.Fprintf(ginkgo.GinkgoWriter, "Pod description:\n%s\n", podDescription)
+		} else {
+			_, _ = fmt.Fprintf(ginkgo.GinkgoWriter, "Failed to describe controller pod: %s\n", err)
+		}
 	}
 }
 
