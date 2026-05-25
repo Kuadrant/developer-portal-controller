@@ -38,65 +38,7 @@ var _ = Describe("Automatic Approval", Ordered, func() {
 	)
 
 	AfterEach(func() {
-		specReport := CurrentSpecReport()
-		if specReport.Failed() {
-			By("Fetching controller manager pod name")
-			cmd := exec.Command("kubectl", "get",
-				"pods", "-l", "control-plane=controller-manager",
-				"-o", "go-template={{ range .items }}"+
-					"{{ if not .metadata.deletionTimestamp }}"+
-					"{{ .metadata.name }}"+
-					"{{ \"\\n\" }}{{ end }}{{ end }}",
-				"-n", controllerNamespace,
-			)
-			podOutput, err := utils.Run(cmd)
-			if err != nil {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get controller pod name: %s\n", err)
-				return
-			}
-			podNames := utils.GetNonEmptyLines(podOutput)
-			if len(podNames) == 0 {
-				_, _ = fmt.Fprintf(GinkgoWriter, "No controller pod found\n")
-				return
-			}
-			controllerPodName := podNames[0]
-
-			By("Fetching controller manager pod logs")
-			cmd = exec.Command("kubectl", "logs", controllerPodName, "-n", controllerNamespace)
-			controllerLogs, err := utils.Run(cmd)
-			if err == nil {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Controller logs:\n%s\n", controllerLogs)
-			} else {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get Controller logs: %s\n", err)
-			}
-
-			By("Fetching Kubernetes events in owner namespace")
-			cmd = exec.Command("kubectl", "get", "events", "-n", ownerNamespace, "--sort-by=.lastTimestamp")
-			eventsOutput, err := utils.Run(cmd)
-			if err == nil {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Events in %s:\n%s\n", ownerNamespace, eventsOutput)
-			} else {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get events in %s: %s\n", ownerNamespace, err)
-			}
-
-			By("Fetching Kubernetes events in consumer namespace")
-			cmd = exec.Command("kubectl", "get", "events", "-n", consumerNamespace, "--sort-by=.lastTimestamp")
-			eventsOutput, err = utils.Run(cmd)
-			if err == nil {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Events in %s:\n%s\n", consumerNamespace, eventsOutput)
-			} else {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get events in %s: %s\n", consumerNamespace, err)
-			}
-
-			By("Fetching controller manager pod description")
-			cmd = exec.Command("kubectl", "describe", "pod", controllerPodName, "-n", controllerNamespace)
-			podDescription, err := utils.Run(cmd)
-			if err == nil {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Pod description:\n%s\n", podDescription)
-			} else {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to describe controller pod: %s\n", err)
-			}
-		}
+		LogDebugInfoOnFailure(ownerNamespace, consumerNamespace, controllerNamespace)
 	})
 
 	BeforeAll(func() {
@@ -108,104 +50,14 @@ var _ = Describe("Automatic Approval", Ordered, func() {
 	})
 
 	AfterAll(func() {
-		By("cleaning up kuadrant namespace")
-		cmd := exec.Command("kubectl", "delete", "ns", kuadrantNamespace, "--wait=false")
-		_, _ = utils.Run(cmd)
-
-		By("cleaning up owner namespace")
-		cmd = exec.Command("kubectl", "delete", "ns", ownerNamespace, "--wait=false")
-		_, _ = utils.Run(cmd)
-
-		By("cleaning up consumer namespace")
-		cmd = exec.Command("kubectl", "delete", "ns", consumerNamespace, "--wait=false")
-		_, _ = utils.Run(cmd)
+		CleanupNamespaces(ownerNamespace, consumerNamespace, kuadrantNamespace)
 	})
 
 	Context("APIKey with automatic approval mode", func() {
 		It("should create APIKeyRequest, automatic approval, and approve the APIKey", func() {
-			By("creating an HTTPRoute as a reference target")
-			httpRouteYAML := fmt.Sprintf(`
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: test-route
-  namespace: %s
-spec:
-  parentRefs:
-  - name: test-gateway
-  rules:
-  - matches:
-    - path:
-        type: PathPrefix
-        value: /api
-    backendRefs:
-    - name: test-service
-      port: 8080
-`, ownerNamespace)
-
-			cmd := exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = utils.StringReader(httpRouteYAML)
-			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to create HTTPRoute")
-
-			By("creating an AuthPolicy with API key authentication")
-			authPolicyYAML := fmt.Sprintf(`
-apiVersion: kuadrant.io/v1
-kind: AuthPolicy
-metadata:
-  name: test-auth-policy
-  namespace: %s
-spec:
-  targetRef:
-    group: gateway.networking.k8s.io
-    kind: HTTPRoute
-    name: test-route
-  rules:
-    authentication:
-      "api-key":
-        apiKey:
-          selector:
-            matchLabels:
-              kuadrant.io/apikeys: "true"
-        credentials:
-          authorizationHeader:
-            prefix: "API-KEY"
-`, ownerNamespace)
-
-			cmd = exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = utils.StringReader(authPolicyYAML)
-			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to create AuthPolicy")
-
-			By("updating AuthPolicy status to Accepted and Enforced")
-			authPolicyStatusPatch := `{
-				"status": {
-					"conditions": [
-						{
-							"type": "Accepted",
-							"status": "True",
-							"reason": "Accepted",
-							"message": "AuthPolicy has been accepted",
-							"lastTransitionTime": "2024-01-01T00:00:00Z"
-						},
-						{
-							"type": "Enforced",
-							"status": "True",
-							"reason": "Enforced",
-							"message": "AuthPolicy has been successfully enforced",
-							"lastTransitionTime": "2024-01-01T00:00:00Z"
-						}
-					]
-				}
-			}`
-
-			cmd = exec.Command("kubectl", "patch", "authpolicy", "test-auth-policy",
-				"-n", ownerNamespace,
-				"--type=merge",
-				"--subresource=status",
-				"-p", authPolicyStatusPatch)
-			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to update AuthPolicy status")
+			By("creating HTTPRoute and AuthPolicy")
+			CreateHTTPRoute(ownerNamespace)
+			CreateAuthPolicy(ownerNamespace)
 
 			By("creating an APIProduct with automatic approval mode")
 			apiProductYAML := fmt.Sprintf(`
@@ -225,9 +77,9 @@ spec:
     name: test-route
 `, apiProductName, ownerNamespace)
 
-			cmd = exec.Command("kubectl", "apply", "-f", "-")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = utils.StringReader(apiProductYAML)
-			_, err = utils.Run(cmd)
+			_, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred(), "Failed to create APIProduct")
 
 			By("verifying APIProduct was created")
