@@ -61,20 +61,26 @@ func CleanupNamespaces(ownerNamespace, consumerNamespace, kuadrantNamespace stri
 	ginkgo.By("cleaning up kuadrant namespace")
 	cmd := exec.Command("kubectl", "delete", "ns", kuadrantNamespace, "--wait=false")
 	output, err := utils.Run(cmd)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-		"Failed to delete kuadrant namespace %s: %s", kuadrantNamespace, output)
+	if err != nil {
+		_, _ = fmt.Fprintf(ginkgo.GinkgoWriter,
+			"Failed to delete kuadrant namespace %s: %v\n%s\n", kuadrantNamespace, err, output)
+	}
 
 	ginkgo.By("cleaning up owner namespace")
 	cmd = exec.Command("kubectl", "delete", "ns", ownerNamespace, "--wait=false")
 	output, err = utils.Run(cmd)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-		"Failed to delete owner namespace %s: %s", ownerNamespace, output)
+	if err != nil {
+		_, _ = fmt.Fprintf(ginkgo.GinkgoWriter,
+			"Failed to delete owner namespace %s: %v\n%s\n", ownerNamespace, err, output)
+	}
 
 	ginkgo.By("cleaning up consumer namespace")
 	cmd = exec.Command("kubectl", "delete", "ns", consumerNamespace, "--wait=false")
 	output, err = utils.Run(cmd)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-		"Failed to delete consumer namespace %s: %s", consumerNamespace, output)
+	if err != nil {
+		_, _ = fmt.Fprintf(ginkgo.GinkgoWriter,
+			"Failed to delete consumer namespace %s: %v\n%s\n", consumerNamespace, err, output)
+	}
 }
 
 // LogDebugInfoOnFailure logs controller logs and events when a test fails
