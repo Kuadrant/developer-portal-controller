@@ -1,6 +1,6 @@
 module github.com/kuadrant/developer-portal-controller
 
-go 1.25.9
+go 1.26.3
 
 require (
 	github.com/kuadrant/authorino v0.22.0
