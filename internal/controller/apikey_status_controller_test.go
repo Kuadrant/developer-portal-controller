@@ -313,6 +313,91 @@ var _ = Describe("APIKey Status Controller", func() {
 			}, time.Second*10, time.Millisecond*250).Should(Succeed())
 		})
 
+		// Regression test for https://github.com/Kuadrant/developer-portal-controller/issues/78
+		//
+		// When the console-plugin creates an APIKey before its Secret (to set
+		// an ownerReference for garbage collection), the status controller
+		// sets SecretNotFound on the first reconciliation. Without a Secret
+		// watch, no subsequent event triggers re-reconciliation, so the
+		// APIKey stays stuck in Failed permanently even after the Secret
+		// appears. This test verifies that creating the Secret clears the
+		// failure.
+		It("should clear Failed condition when Secret is created after the APIKey", func() {
+			controllerReconciler := &APIKeyStatusReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			secretName := "late-arriving-secret"
+
+			By("Creating an APIKey that references a Secret that does not exist yet")
+			apiKeyObj := &devportalv1alpha1.APIKey{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "apikey-late-secret",
+					Namespace: consumerNamespace,
+				},
+				Spec: devportalv1alpha1.APIKeySpec{
+					APIProductRef: devportalv1alpha1.APIProductReference{
+						Name:      apiProductName,
+						Namespace: apiProductNamespace,
+					},
+					SecretRef: corev1.LocalObjectReference{
+						Name: secretName,
+					},
+					PlanTier: "premium",
+					UseCase:  "Testing secret recovery",
+					RequestedBy: devportalv1alpha1.RequestedBy{
+						UserID: "test-user",
+						Email:  "test@example.com",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, apiKeyObj)).To(Succeed())
+
+			By("Running reconciliation — should set SecretNotFound")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			updatedAPIKey := &devportalv1alpha1.APIKey{}
+			Eventually(func(g Gomega) {
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "apikey-late-secret",
+					Namespace: consumerNamespace,
+				}, updatedAPIKey)
+				g.Expect(err).NotTo(HaveOccurred())
+				failedCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionFailed)
+				g.Expect(failedCondition).NotTo(BeNil())
+				g.Expect(failedCondition.Reason).To(Equal("SecretNotFound"))
+			}, time.Second*10, time.Millisecond*250).Should(Succeed())
+
+			By("Creating the Secret that the APIKey references")
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      secretName,
+					Namespace: consumerNamespace,
+				},
+				Type: corev1.SecretTypeOpaque,
+				Data: map[string][]byte{
+					"api_key": []byte("test-key-value"),
+				},
+			}
+			Expect(k8sClient.Create(ctx, secret)).To(Succeed())
+
+			By("Running reconciliation — should clear the Failed condition")
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func(g Gomega) {
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "apikey-late-secret",
+					Namespace: consumerNamespace,
+				}, updatedAPIKey)
+				g.Expect(err).NotTo(HaveOccurred())
+				failedCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionFailed)
+				g.Expect(failedCondition).To(BeNil(), "Failed condition should be cleared after Secret is created")
+			}, time.Second*10, time.Millisecond*250).Should(Succeed())
+		})
+
 		It("should set Pending condition when no approval exists", func() {
 			controllerReconciler := &APIKeyStatusReconciler{
 				Client: k8sClient,
