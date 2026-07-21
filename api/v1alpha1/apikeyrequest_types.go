@@ -58,6 +58,10 @@ type APIKeyRequestSpec struct {
 	// Reference to the APIKey this APIKeyRequest belongs to.
 	// +kubebuilder:validation:Required
 	APIKeyRef APIKeyReference `json:"apiKeyRef"`
+
+	// ExpiresAt is the expiration time requested by the consumer
+	// +optional
+	ExpiresAt *metav1.Time `json:"expiresAt,omitempty"`
 }
 
 // APIKeyRequestStatus defines the observed state of APIKeyRequest.

@@ -21,6 +21,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"time"
 
 	"github.com/samber/lo"
 	corev1 "k8s.io/api/core/v1"
@@ -39,6 +40,7 @@ import (
 const (
 	apiKeySecretAnnotationPlan      = "secret.kuadrant.io/plan-id"
 	apiKeySecretAnnotationUser      = "secret.kuadrant.io/user-id"
+	apiKeySecretAnnotationExpiresAt = "secret.kuadrant.io/expires-at"
 	apiKeySecretLabelAuthorinoValue = "authorino"
 	apiKeySecretKey                 = "api_key"
 	// Enforcement secret labels
@@ -209,16 +211,21 @@ func (r *APIKeySecretReconciler) desiredEnforcementSecret(ctx context.Context, a
 			secretLabels)
 	}
 
+	annotations := map[string]string{
+		apiKeySecretAnnotationPlan: apiKey.Spec.PlanTier,
+		apiKeySecretAnnotationUser: apiKey.Spec.RequestedBy.UserID,
+	}
+	if apiKey.Spec.ExpiresAt != nil {
+		annotations[apiKeySecretAnnotationExpiresAt] = apiKey.Spec.ExpiresAt.Format(time.RFC3339)
+	}
+
 	// Create enforcement secret in kuadrant namespace
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      enforcementSecretName(apiKey),
-			Namespace: kuadrantNamespace,
-			Annotations: map[string]string{
-				apiKeySecretAnnotationPlan: apiKey.Spec.PlanTier,
-				apiKeySecretAnnotationUser: apiKey.Spec.RequestedBy.UserID,
-			},
-			Labels: secretLabels,
+			Name:        enforcementSecretName(apiKey),
+			Namespace:   kuadrantNamespace,
+			Annotations: annotations,
+			Labels:      secretLabels,
 		},
 		Type: corev1.SecretTypeOpaque,
 		Data: map[string][]byte{

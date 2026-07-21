@@ -24,7 +24,7 @@ Key concepts from the design:
 - **Shadow resources**: APIKeyRequest mirrors APIKey in owner's namespace for RBAC-enforced discovery
 - **Cross-namespace references**: APIKey references APIProduct across namespaces; APIKeyApproval references APIKey across namespaces
 - **Secret projection**: API key values projected to status field, eliminating need for secret read permissions
-- **Conditions pattern**: Uses conditions array (Pending/Approved/Denied/Failed) following CertificateSigningRequest pattern
+- **Conditions pattern**: Uses conditions array (Pending/Approved/Denied/Failed/Expired) following CertificateSigningRequest pattern
 
 ## Development Commands
 
@@ -87,7 +87,9 @@ make cleanup-test-e2e  # Tear down the Kind cluster used for e2e tests
 
 - **internal/controller/**: Reconciliation logic
     - `apiproduct_controller.go`: APIProductReconciler for API product lifecycle
-    - `apikey_controller.go`: APIKeyReconciler for consumer API key requests
+    - `apikey_status_controller.go`: APIKeyStatusReconciler — expiry checks, condition updates, RequeueAfter scheduling
+    - `apikey_secret_controller.go`: APIKeySecretReconciler — creates/deletes enforcement secrets on approval/denial/expiry
+    - `apikey_auto_approval_controller.go`: APIKeyAutoApprovalReconciler — handles automatic approval mode
     - `apikeyrequest_controller.go`: APIKeyRequestReconciler for request processing
     - Controllers use client.Client for K8s API access
     - RBAC permissions defined via kubebuilder markers (`+kubebuilder:rbac`)
@@ -116,12 +118,20 @@ The operator follows the standard Kubernetes controller pattern with multiple re
 3. Fetches and stores OpenAPI spec
 4. Updates status with discovered plans and auth scheme
 
-**APIKeyReconciler**:
-1. Watches APIKey resources (consumer namespace)
-2. Creates APIKeyRequest shadow resource in owner namespace
-3. Processes APIKeyApproval decisions
-4. Creates API key secrets and projects values to status
-5. Updates conditions (Pending/Approved/Denied)
+**APIKeyStatusReconciler**:
+1. Watches APIKey resources
+2. Updates conditions (Pending/Approved/Denied/Failed/Expired)
+3. Handles key expiration: if `spec.expiresAt` is set and has passed, sets `Expired` condition
+4. Uses `RequeueAfter` to wake up exactly when a key expires
+
+**APIKeySecretReconciler**:
+1. Watches APIKey resources
+2. Creates enforcement secrets when key is approved
+3. Deletes enforcement secrets when key is denied or expired
+
+**APIKeyAutoApprovalReconciler**:
+1. Watches APIKey resources
+2. Automatically approves keys when the associated APIProduct has automatic approval mode enabled
 
 **APIKeyRequestReconciler**:
 1. Watches APIKeyRequest resources (owner namespace)
