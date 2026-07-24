@@ -634,6 +634,210 @@ var _ = Describe("APIKey Status Controller", func() {
 			Expect(approvedCondition.Message).To(ContainSubstring("Approved for production"))
 		})
 
+		It("should set Expired condition when approved key has passed its expiration date", func() {
+			controllerReconciler := &APIKeyStatusReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			By("Setting expiresAt in the past on the APIKey")
+			Eventually(func() error {
+				if err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      apiKeyName,
+					Namespace: consumerNamespace,
+				}, apiKey); err != nil {
+					return err
+				}
+				pastTime := metav1.NewTime(time.Now().Add(-time.Hour))
+				apiKey.Spec.ExpiresAt = &pastTime
+				return k8sClient.Update(ctx, apiKey)
+			}, time.Second*5, time.Millisecond*100).Should(Succeed())
+
+			By("Creating a valid APIKeyApproval")
+			approval := &devportalv1alpha1.APIKeyApproval{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "expired-test-approval",
+					Namespace: apiProductNamespace,
+				},
+				Spec: devportalv1alpha1.APIKeyApprovalSpec{
+					APIKeyRequestRef: devportalv1alpha1.APIKeyRequestReference{
+						Name: APIKeyRequestName(apiKey),
+					},
+					Approved:   true,
+					ReviewedBy: "admin@example.com",
+					ReviewedAt: metav1.Now(),
+					Message:    "Approved",
+				},
+			}
+			Expect(k8sClient.Create(ctx, approval)).To(Succeed())
+
+			approval.Status.Conditions = []metav1.Condition{
+				{
+					Type:               devportalv1alpha1.APIKeyApprovalConditionValid,
+					Status:             metav1.ConditionTrue,
+					ObservedGeneration: approval.Generation,
+					Reason:             "Valid",
+					Message:            "Valid approval",
+					LastTransitionTime: metav1.Now(),
+				},
+			}
+			approval.Status.ObservedGeneration = approval.Generation
+			Expect(k8sClient.Status().Update(ctx, approval)).To(Succeed())
+
+			By("Running reconciliation")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying Expired condition is set")
+			updatedAPIKey := &devportalv1alpha1.APIKey{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      apiKeyName,
+					Namespace: consumerNamespace,
+				}, updatedAPIKey)
+				if err != nil {
+					return false
+				}
+				expiredCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionExpired)
+				return expiredCondition != nil && expiredCondition.Status == metav1.ConditionTrue
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+
+			By("Verifying Approved condition is not set")
+			approvedCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionApproved)
+			Expect(approvedCondition).To(BeNil())
+		})
+
+		It("should set Approved condition when key has no expiresAt", func() {
+			controllerReconciler := &APIKeyStatusReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			By("Creating a valid APIKeyApproval without setting expiresAt on APIKey")
+			approval := &devportalv1alpha1.APIKeyApproval{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "no-expiry-approval",
+					Namespace: apiProductNamespace,
+				},
+				Spec: devportalv1alpha1.APIKeyApprovalSpec{
+					APIKeyRequestRef: devportalv1alpha1.APIKeyRequestReference{
+						Name: APIKeyRequestName(apiKey),
+					},
+					Approved:   true,
+					ReviewedBy: "admin@example.com",
+					ReviewedAt: metav1.Now(),
+				},
+			}
+			Expect(k8sClient.Create(ctx, approval)).To(Succeed())
+
+			approval.Status.Conditions = []metav1.Condition{
+				{
+					Type:               devportalv1alpha1.APIKeyApprovalConditionValid,
+					Status:             metav1.ConditionTrue,
+					ObservedGeneration: approval.Generation,
+					Reason:             "Valid",
+					Message:            "Valid approval",
+					LastTransitionTime: metav1.Now(),
+				},
+			}
+			approval.Status.ObservedGeneration = approval.Generation
+			Expect(k8sClient.Status().Update(ctx, approval)).To(Succeed())
+
+			By("Running reconciliation")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying Approved condition is set and Expired is not")
+			updatedAPIKey := &devportalv1alpha1.APIKey{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      apiKeyName,
+					Namespace: consumerNamespace,
+				}, updatedAPIKey)
+				if err != nil {
+					return false
+				}
+				approvedCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionApproved)
+				return approvedCondition != nil && approvedCondition.Status == metav1.ConditionTrue
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+
+			By("Verifying Expired condition is not set")
+			expiredCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionExpired)
+			Expect(expiredCondition).To(BeNil())
+		})
+
+		It("should set Approved condition when key has expiresAt in the future", func() {
+			controllerReconciler := &APIKeyStatusReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			By("Setting expiresAt in the future on the APIKey")
+			Eventually(func() error {
+				if err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      apiKeyName,
+					Namespace: consumerNamespace,
+				}, apiKey); err != nil {
+					return err
+				}
+				futureTime := metav1.NewTime(time.Now().Add(24 * time.Hour))
+				apiKey.Spec.ExpiresAt = &futureTime
+				return k8sClient.Update(ctx, apiKey)
+			}, time.Second*5, time.Millisecond*100).Should(Succeed())
+
+			By("Creating a valid APIKeyApproval")
+			approval := &devportalv1alpha1.APIKeyApproval{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "future-expiry-approval",
+					Namespace: apiProductNamespace,
+				},
+				Spec: devportalv1alpha1.APIKeyApprovalSpec{
+					APIKeyRequestRef: devportalv1alpha1.APIKeyRequestReference{
+						Name: APIKeyRequestName(apiKey),
+					},
+					Approved:   true,
+					ReviewedBy: "admin@example.com",
+					ReviewedAt: metav1.Now(),
+				},
+			}
+			Expect(k8sClient.Create(ctx, approval)).To(Succeed())
+
+			approval.Status.Conditions = []metav1.Condition{
+				{
+					Type:               devportalv1alpha1.APIKeyApprovalConditionValid,
+					Status:             metav1.ConditionTrue,
+					ObservedGeneration: approval.Generation,
+					Reason:             "Valid",
+					Message:            "Valid approval",
+					LastTransitionTime: metav1.Now(),
+				},
+			}
+			approval.Status.ObservedGeneration = approval.Generation
+			Expect(k8sClient.Status().Update(ctx, approval)).To(Succeed())
+
+			By("Running reconciliation")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying Approved condition is set and Expired is not")
+			updatedAPIKey := &devportalv1alpha1.APIKey{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      apiKeyName,
+					Namespace: consumerNamespace,
+				}, updatedAPIKey)
+				if err != nil {
+					return false
+				}
+				approvedCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionApproved)
+				return approvedCondition != nil && approvedCondition.Status == metav1.ConditionTrue
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+
+			By("Verifying Expired condition is not set")
+			expiredCondition := meta.FindStatusCondition(updatedAPIKey.Status.Conditions, devportalv1alpha1.APIKeyConditionExpired)
+			Expect(expiredCondition).To(BeNil())
+		})
+
 		It("should set Denied condition when denial exists", func() {
 			controllerReconciler := &APIKeyStatusReconciler{
 				Client: k8sClient,

@@ -33,6 +33,9 @@ const (
 	// APIKeyConditionDenied indicates the APIKey request has been denied by the API owner
 	APIKeyConditionDenied string = "Denied"
 
+	// APIKeyConditionExpired indicates the APIKey has passed its expiration date
+	APIKeyConditionExpired string = "Expired"
+
 	// APIKeyConditionFailed indicates the APIKey processing has failed
 	APIKeyConditionFailed string = "Failed"
 
@@ -70,6 +73,10 @@ type APIKeySpec struct {
 	// RequestedBy contains information about who requested the API key
 	// +kubebuilder:validation:Required
 	RequestedBy RequestedBy `json:"requestedBy"`
+
+	// ExpiresAt is the time after which the API key should be revoked
+	// +optional
+	ExpiresAt *metav1.Time `json:"expiresAt,omitempty"`
 }
 
 // RequestedBy contains information about the requester.

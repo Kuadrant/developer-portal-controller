@@ -97,6 +97,7 @@ func (r *APIKeyRequestReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 					Name:      apiKey.Name,
 					Namespace: apiKey.Namespace,
 				},
+				ExpiresAt: apiKey.Spec.ExpiresAt,
 			},
 		}
 

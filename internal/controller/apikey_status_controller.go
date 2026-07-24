@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/samber/lo"
 	corev1 "k8s.io/api/core/v1"
@@ -95,8 +96,11 @@ func (r *APIKeyStatusReconciler) Reconcile(ctx context.Context, _ ctrl.Request) 
 		return api.GetDeletionTimestamp() == nil
 	})
 
+	var requeueAfter time.Duration
+	now := time.Now()
+
 	for idx := range activeAPIKeyList {
-		err := r.reconcileStatus(ctx, &activeAPIKeyList[idx])
+		err := r.reconcileStatus(ctx, &activeAPIKeyList[idx], now)
 		if err != nil {
 			if apierrors.IsConflict(err) {
 				// Ignore conflicts, resource might just be outdated.
@@ -105,15 +109,28 @@ func (r *APIKeyStatusReconciler) Reconcile(ctx context.Context, _ ctrl.Request) 
 			}
 			return ctrl.Result{}, err
 		}
+
+		// track the earliest future expiry so we wake up exactly when needed
+		key := &activeAPIKeyList[idx]
+		if key.Spec.ExpiresAt != nil && key.Spec.ExpiresAt.After(now) {
+			timeUntilExpiry := key.Spec.ExpiresAt.Sub(now)
+			if requeueAfter == 0 || timeUntilExpiry < requeueAfter {
+				requeueAfter = timeUntilExpiry
+			}
+		}
+	}
+
+	if requeueAfter > 0 {
+		return ctrl.Result{RequeueAfter: requeueAfter}, nil
 	}
 
 	return ctrl.Result{}, nil
 }
 
-func (r *APIKeyStatusReconciler) reconcileStatus(ctx context.Context, apiKey *devportalv1alpha1.APIKey) error {
+func (r *APIKeyStatusReconciler) reconcileStatus(ctx context.Context, apiKey *devportalv1alpha1.APIKey, now time.Time) error {
 	logger := logf.FromContext(ctx, "apikey", client.ObjectKeyFromObject(apiKey))
 
-	newStatus, err := r.calculateStatus(ctx, apiKey)
+	newStatus, err := r.calculateStatus(ctx, apiKey, now)
 	if err != nil {
 		return err
 	}
@@ -135,12 +152,12 @@ func (r *APIKeyStatusReconciler) reconcileStatus(ctx context.Context, apiKey *de
 	return nil
 }
 
-func (r *APIKeyStatusReconciler) calculateStatus(ctx context.Context, apiKey *devportalv1alpha1.APIKey) (*devportalv1alpha1.APIKeyStatus, error) {
+func (r *APIKeyStatusReconciler) calculateStatus(ctx context.Context, apiKey *devportalv1alpha1.APIKey, now time.Time) (*devportalv1alpha1.APIKeyStatus, error) {
 	newStatus := &devportalv1alpha1.APIKeyStatus{
 		ObservedGeneration: apiKey.Generation,
 	}
 
-	newConditions, err := r.calculateStatusConditions(ctx, apiKey)
+	newConditions, err := r.calculateStatusConditions(ctx, apiKey, now)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +185,7 @@ func (r *APIKeyStatusReconciler) calculateStatus(ctx context.Context, apiKey *de
 	return newStatus, nil
 }
 
-func (r *APIKeyStatusReconciler) calculateStatusConditions(ctx context.Context, apiKey *devportalv1alpha1.APIKey) ([]metav1.Condition, error) {
+func (r *APIKeyStatusReconciler) calculateStatusConditions(ctx context.Context, apiKey *devportalv1alpha1.APIKey, now time.Time) ([]metav1.Condition, error) {
 	conditions := slices.Clone(apiKey.Status.Conditions)
 
 	// Check Failed condition first - if failed, we're done
@@ -179,6 +196,7 @@ func (r *APIKeyStatusReconciler) calculateStatusConditions(ctx context.Context, 
 	if failedCondition != nil {
 		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionApproved)
 		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionDenied)
+		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionExpired)
 		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionPending)
 		meta.SetStatusCondition(&conditions, *failedCondition)
 		return conditions, nil
@@ -188,16 +206,32 @@ func (r *APIKeyStatusReconciler) calculateStatusConditions(ctx context.Context, 
 	deniedCondition := r.calculateDeniedCondition(ctx, apiKey)
 	if deniedCondition != nil {
 		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionApproved)
+		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionExpired)
 		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionFailed)
 		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionPending)
 		meta.SetStatusCondition(&conditions, *deniedCondition)
 		return conditions, nil
 	}
 
-	// Check for Approved condition - if approved, we're done
+	// Check for Approved condition - if approved, check if also expired
 	approvedCondition := r.calculateApprovedCondition(ctx, apiKey)
 	if approvedCondition != nil {
+		if apiKey.Spec.ExpiresAt != nil && !apiKey.Spec.ExpiresAt.After(now) {
+			meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionApproved)
+			meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionDenied)
+			meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionFailed)
+			meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionPending)
+			meta.SetStatusCondition(&conditions, metav1.Condition{
+				Type:               devportalv1alpha1.APIKeyConditionExpired,
+				Status:             metav1.ConditionTrue,
+				ObservedGeneration: apiKey.Generation,
+				Reason:             "KeyExpired",
+				Message:            fmt.Sprintf("API key expired at %s", apiKey.Spec.ExpiresAt.Format(time.RFC3339)),
+			})
+			return conditions, nil
+		}
 		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionDenied)
+		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionExpired)
 		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionFailed)
 		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionPending)
 		meta.SetStatusCondition(&conditions, *approvedCondition)
@@ -209,6 +243,7 @@ func (r *APIKeyStatusReconciler) calculateStatusConditions(ctx context.Context, 
 	if pendingCondition != nil {
 		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionApproved)
 		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionDenied)
+		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionExpired)
 		meta.RemoveStatusCondition(&conditions, devportalv1alpha1.APIKeyConditionFailed)
 		meta.SetStatusCondition(&conditions, *pendingCondition)
 		return conditions, nil
