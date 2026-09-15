@@ -39,6 +39,11 @@ runs:
       with:
         version: ${{ inputs.version }}
 
+    - name: Update chart version
+      uses: ./.github/actions/update-chart-version
+      with:
+        version: ${{ inputs.version }}
+
     - name: Update Makefile QUAY_IMAGE_EXPIRY
       uses: ./.github/actions/update-makefile-expiry
       with:

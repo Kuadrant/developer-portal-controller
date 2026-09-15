@@ -50,6 +50,7 @@ jobs:
 
             ## Changes
             - Updated VERSION in Makefile to ${{ github.event.inputs.version }}
+            - Updated version and appVersion in charts/developer-portal-controller/Chart.yaml to ${{ github.event.inputs.version }}
             - Updated QUAY_IMAGE_EXPIRY in Makefile to never
 
             ## Post-merge
