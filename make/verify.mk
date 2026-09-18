@@ -18,3 +18,8 @@ verify-tidy: fmt ## Verify tidy update.
 .PHONY: verify-generate
 verify-generate: generate ## Verify generate update.
 	git diff --exit-code ./api ./internal
+
+.PHONY: verify-helm
+verify-helm: helm-build helm-lint ## Verify helm chart is in sync with config/ and lints clean.
+	git diff --exit-code ./charts
+	[ -z "$$(git ls-files --other --exclude-standard --directory --no-empty-directory ./charts)" ]

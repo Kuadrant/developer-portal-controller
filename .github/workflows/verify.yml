@@ -59,3 +59,16 @@ jobs:
       - name: Verify generate command
         run: |
           make verify-generate
+  verify-helm:
+    name: Verify helm chart
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v5
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run make verify-helm
+        run: |
+          make verify-helm
