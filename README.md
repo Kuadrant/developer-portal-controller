@@ -481,6 +481,18 @@ If the APIProduct has `approvalMode: automatic`, the controller automatically cr
 
 ---
 
+## Installation
+
+The controller ships as a Helm chart in `charts/developer-portal-controller`: CRDs, RBAC and the manager Deployment. [kuadrant-operator](https://github.com/Kuadrant/kuadrant-operator) deploys it as a `KuadrantControlPlane` component from a synced copy of this chart, so a standalone install is only needed outside of Kuadrant:
+
+```bash
+make helm-install
+```
+
+`make helm-build` copies the generated CRDs and RBAC from `config/` into the chart. CI fails if the chart is out of sync.
+
+---
+
 ## Development Environment Setup
 
 The `make local-setup` command sets up a complete local development environment using Kind (Kubernetes in Docker). This is useful for local development when you don't have Istio or Kuadrant controllers installed.
