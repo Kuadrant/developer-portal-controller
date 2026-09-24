@@ -2,28 +2,73 @@ name: Release
 
 on:
   pull_request:
-    types:
-      - closed
+    types: [closed]
     branches:
       - 'release-v[0-9]+.[0-9]+'
       - 'release-[0-9]+.[0-9]+'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      pullRequest:
+        description: Merged release PR number (run this workflow from main)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+  statuses: read
+
+concurrency:
+  group: controller-release
+  cancel-in-progress: false
 
 jobs:
   release:
-    if: github.event.pull_request.merged == true
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.pull_request.merged == true &&
+       github.event.pull_request.head.repo.full_name == github.repository)
     name: Create release
     runs-on: ubuntu-latest
+    env:
+      PR_NUMBER: ${{ inputs.pullRequest || github.event.pull_request.number }}
     steps:
-      - name: Checkout code
+      - name: Checkout release tooling
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Resolve merged release PR
+        id: release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const resolve = require('./utils/release/resolve-release-pr.cjs');
+            await resolve({ github, context, core, prNumber: process.env.PR_NUMBER });
+
+      - name: Verify required PR checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh pr checks "$PR_NUMBER" --required --json name,bucket > "$RUNNER_TEMP/release-checks.json"
+          jq -e 'length > 0 and all(.[]; .bucket == "pass")' "$RUNNER_TEMP/release-checks.json"
+
+      - name: Checkout exact release commit
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.KUADRANT_DEV_PAT }}
-          ref: ${{ github.ref_name }}
+          ref: ${{ steps.release.outputs.sha }}
+          path: release-source
           fetch-depth: 0
 
-      - name: Create release
-        uses: ./.github/actions/create-release
-        with:
-          github-token: ${{ secrets.KUADRANT_DEV_PAT }}
-          release-branch: ${{ github.ref_name }}
+      - name: Publish verified release
+        working-directory: release-source
+        env:
+          GH_TOKEN: ${{ secrets.KUADRANT_DEV_PAT }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_BRANCH: ${{ steps.release.outputs.branch }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+        run: bash ../utils/release/publish-release.sh

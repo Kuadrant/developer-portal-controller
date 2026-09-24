@@ -1,0 +1,27 @@
+name: Release tooling tests
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/*release*.yaml'
+      - 'utils/release/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/*release*.yaml'
+      - 'utils/release/**'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test utils/release/tests/*.test.cjs
+      - run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s utils/release/tests
+      - run: shellcheck utils/release/publish-release.sh
