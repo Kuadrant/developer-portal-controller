@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Run from the checked-out release commit; tooling stays on main.
+# run from the release commit; tooling stays on main.
 : "${RELEASE_BRANCH:?}" "${RELEASE_SHA:?}" "${GH_REPO:?}" "${GH_TOKEN:?}"
 test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
 git fetch --no-tags origin "refs/heads/${RELEASE_BRANCH}"
@@ -18,7 +18,7 @@ fi
 [[ "$VERSION" != 0.0.0 ]]
 TAG=v$VERSION
 
-# A successful response is required; a network error is not release absence.
+# require a successful query before treating a release as absent.
 RELEASES=$(gh api --paginate --slurp "repos/$GH_REPO/releases")
 RELEASE_EXISTS=$(jq -er --arg tag "$TAG" 'if any(.[][]; .tag_name == $tag) then "yes" else "no" end' <<<"$RELEASES")
 
@@ -41,3 +41,5 @@ fi
 ARGS=(--verify-tag --title "$TAG" --generate-notes)
 if [[ "$VERSION" == *-* ]]; then ARGS+=(--prerelease); fi
 gh release create "$TAG" "${ARGS[@]}"
+
+gh workflow run build-image.yaml --repo "$GH_REPO" --ref "$TAG"

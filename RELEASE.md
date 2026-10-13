@@ -24,15 +24,14 @@ bump is needed on `main`.
 3. Have a maintainer review the PR and merge it after all required CI checks,
    including e2e, pass. The release commit must be the merged PR commit at the
    tip of the maintenance branch.
-4. For a PR originating in this repository, the **Release** workflow publishes
-   an annotated tag and a GitHub Release with generated notes. The tag push
-   triggers the container image build. Fork PRs use the manual recovery path
-   below after review and merge, because their PR events do not receive the
-   publication secret.
+4. After a version PR merges, the **Release** workflow publishes an annotated
+   tag and a GitHub Release, then dispatches the image build for that tag.
+   Fork PRs follow the same path. Only merged code is checked out for publication.
 
-Both preparation and publication require the repository's `KUADRANT_DEV_PAT`
-secret. Publication uses that credential so the tag push can trigger the image
-workflow. Required-check verification uses the read-only workflow token.
+Publication uses the built-in `GITHUB_TOKEN` with contents and Actions write
+permissions. No publication PAT is required. Image builds are dispatched
+explicitly because tag pushes made with `GITHUB_TOKEN` do not trigger workflows.
+Preparation still uses `KUADRANT_DEV_PAT` to create the version PR.
 
 ## Patch releases
 
@@ -64,7 +63,7 @@ Existing maintenance branches may still contain an older automatic workflow;
 use this recovery path from `main` for those branches.
 
 After a release PR is reviewed and merged, recover a missed publication event
-or publish a fork PR using **Release**, dispatched from **main** with that PR's
+using **Release**, dispatched from **main** with that PR's
 number:
 
 ```shell
@@ -85,7 +84,9 @@ republishing; inspect whether it is published, draft, or a prerelease before
 proceeding. A rerun does not retrigger an image build for an existing tag.
 
 For an image build failure, inspect the run for the exact tag and commit before
-rerunning that failed build. Check Quay first: if the expected image already
+rerunning that failed build. If dispatch failed, run `gh workflow run
+build-image.yaml --repo Kuadrant/developer-portal-controller --ref vX.Y.Z`.
+Check Quay first: if the expected image already
 exists, verify it rather than rebuilding a published tag.
 
 ## Verify publication
@@ -101,7 +102,7 @@ For example, inspect a specific release with:
 ```shell
 gh release view vX.Y.Z --repo Kuadrant/developer-portal-controller
 gh run list --repo Kuadrant/developer-portal-controller \
-  --workflow build-image.yaml --event push --branch vX.Y.Z --commit <merge-sha>
+  --workflow build-image.yaml --event workflow_dispatch --branch vX.Y.Z --commit <merge-sha>
 curl -fsS 'https://quay.io/api/v1/repository/kuadrant/developer-portal-controller/tag/?specificTag=vX.Y.Z'
 ```
 

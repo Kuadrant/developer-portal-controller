@@ -39,6 +39,9 @@ if args[0] == 'api':
     print(json.dumps([[{'tag_name': 'v0.3.0'}]] if os.environ.get('EXISTING_RELEASE') else [[]]))
 elif args[:2] == ['release', 'create']:
     (root / 'published').write_text(json.dumps(args))
+elif args[:2] == ['workflow', 'run']:
+    if os.environ.get('DISPATCH_ERROR'): sys.exit(1)
+    (root / 'dispatched').write_text(json.dumps(args))
 elif args[:2] != ['release', 'view']:
     sys.exit(2)
 ''')
@@ -59,6 +62,8 @@ elif args[:2] != ['release', 'view']:
         self.assertEqual(self.git('rev-parse', 'v0.3.0^{commit}'), self.sha)
         self.assertIn('--verify-tag', json.loads((self.root / 'published').read_text()))
         self.assertEqual(self.git('ls-remote', '--heads', 'origin').split()[0], self.sha)
+        self.assertEqual(json.loads((self.root / 'dispatched').read_text()),
+                         ['workflow', 'run', 'build-image.yaml', '--repo', 'owner/repo', '--ref', 'v0.3.0'])
 
     def test_reuses_existing_correct_tag(self):
         self.git('tag', '-a', 'v0.3.0', '-m', 'Release')
@@ -101,3 +106,8 @@ elif args[:2] != ['release', 'view']:
         self.env['RELEASE_SHA'] = self.git('rev-parse', 'HEAD')
         self.assertNotEqual(self.run_script().returncode, 0)
         self.assertEqual(self.git('tag'), '')
+
+    def test_dispatch_failure_is_reported(self):
+        self.env['DISPATCH_ERROR'] = '1'
+        self.assertNotEqual(self.run_script().returncode, 0)
+        self.assertTrue((self.root / 'published').exists())
