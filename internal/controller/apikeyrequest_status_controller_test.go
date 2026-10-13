@@ -22,9 +22,12 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	devportalv1alpha1 "github.com/kuadrant/developer-portal-controller/api/v1alpha1"
@@ -465,4 +468,102 @@ var _ = Describe("APIKeyRequest Status Controller", func() {
 			// The controller should handle missing APIKey gracefully by skipping it
 		})
 	})
+	It("syncs Pending status after an APIKeyRequest is recreated", func(ctx SpecContext) {
+		mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+			Scheme:                 k8sClient.Scheme(),
+			Metrics:                metricsserver.Options{BindAddress: "0"},
+			HealthProbeBindAddress: "0",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		reconciler := &APIKeyRequestStatusReconciler{
+			Client: mgr.GetClient(),
+			Scheme: mgr.GetScheme(),
+		}
+		Expect(reconciler.SetupWithManager(mgr)).To(Succeed())
+
+		managerCtx, stopManager := context.WithCancel(ctx)
+		managerDone := make(chan error, 1)
+		go func() { managerDone <- mgr.Start(managerCtx) }()
+		defer func() {
+			stopManager()
+			select {
+			case err := <-managerDone:
+				Expect(err).NotTo(HaveOccurred())
+			case <-time.After(5 * time.Second):
+				Fail("controller manager did not stop")
+			}
+		}()
+		Expect(mgr.GetCache().WaitForCacheSync(managerCtx)).To(BeTrue())
+
+		apiKey := &devportalv1alpha1.APIKey{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "recreated-apikey",
+				Namespace: consumerNamespace,
+			},
+			Spec: devportalv1alpha1.APIKeySpec{
+				APIProductRef: devportalv1alpha1.APIProductReference{
+					Name:      apiProductName,
+					Namespace: apiProductNamespace,
+				},
+				PlanTier: "premium",
+				UseCase:  "Testing recreated shadow resource",
+				RequestedBy: devportalv1alpha1.RequestedBy{
+					UserID: "test-user",
+					Email:  "test@example.com",
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, apiKey)).To(Succeed())
+
+		request := &devportalv1alpha1.APIKeyRequest{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      APIKeyRequestName(apiKey),
+				Namespace: apiProductNamespace,
+			},
+			Spec: devportalv1alpha1.APIKeyRequestSpec{
+				APIProductRef: devportalv1alpha1.LocalAPIProductReference{Name: apiProductName},
+				PlanTier:      apiKey.Spec.PlanTier,
+				UseCase:       apiKey.Spec.UseCase,
+				RequestedBy:   apiKey.Spec.RequestedBy,
+				APIKeyRef: devportalv1alpha1.APIKeyReference{
+					Name:      apiKey.Name,
+					Namespace: apiKey.Namespace,
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, request)).To(Succeed())
+
+		meta.SetStatusCondition(&apiKey.Status.Conditions, metav1.Condition{
+			Type:               devportalv1alpha1.APIKeyConditionPending,
+			Status:             metav1.ConditionTrue,
+			Reason:             "Pending",
+			Message:            "Awaiting approval",
+			ObservedGeneration: apiKey.Generation,
+		})
+		Expect(k8sClient.Status().Update(ctx, apiKey)).To(Succeed())
+
+		requestKey := types.NamespacedName{Name: request.Name, Namespace: request.Namespace}
+		hasPending := func() bool {
+			current := &devportalv1alpha1.APIKeyRequest{}
+			if err := k8sClient.Get(ctx, requestKey, current); err != nil {
+				return false
+			}
+			condition := meta.FindStatusCondition(current.Status.Conditions, devportalv1alpha1.APIKeyConditionPending)
+			return condition != nil && condition.Status == metav1.ConditionTrue
+		}
+		Eventually(hasPending, 10*time.Second, 100*time.Millisecond).Should(BeTrue())
+
+		Expect(k8sClient.Delete(ctx, request)).To(Succeed())
+		Eventually(func() bool {
+			return apierrors.IsNotFound(k8sClient.Get(ctx, requestKey, &devportalv1alpha1.APIKeyRequest{}))
+		}, 10*time.Second, 100*time.Millisecond).Should(BeTrue())
+
+		replacement := &devportalv1alpha1.APIKeyRequest{
+			ObjectMeta: metav1.ObjectMeta{Name: request.Name, Namespace: request.Namespace},
+			Spec:       request.Spec,
+		}
+		Expect(k8sClient.Create(ctx, replacement)).To(Succeed())
+		Eventually(hasPending, 10*time.Second, 100*time.Millisecond).Should(BeTrue())
+	}, nodeTimeOut)
 })
