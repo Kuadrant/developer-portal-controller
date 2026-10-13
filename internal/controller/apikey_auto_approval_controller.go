@@ -63,7 +63,7 @@ func (r *APIKeyAutoApprovalReconciler) Reconcile(ctx context.Context, req ctrl.R
 	}
 
 	// 1. Check if APIKeyRequest has Pending condition with status=True
-	// If status hasn't been set yet, we proceed anyway (defensive programming)
+	// Wait for the APIKeyRequest status to be synced from the APIKey before approving.
 	pendingCondition := meta.FindStatusCondition(apiKeyRequest.Status.Conditions, devportalv1alpha1.APIKeyConditionPending)
 
 	// Skip if not pending (either approved, denied, or other state)
