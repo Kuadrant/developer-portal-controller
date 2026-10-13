@@ -1,85 +1,75 @@
 name: Release
 
 on:
-  pull_request:
-    types:
-      - closed
+  pull_request_target:
+    types: [closed]
     branches:
       - 'release-v[0-9]+.[0-9]+'
-  workflow_dispatch: {}
+      - 'release-[0-9]+.[0-9]+'
+    paths: [Makefile]
+  workflow_dispatch:
+    inputs:
+      pullRequest:
+        description: Merged release PR number (run this workflow from main)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+  pull-requests: read
+  checks: read
+  statuses: read
+
+concurrency:
+  group: controller-release
+  cancel-in-progress: false
 
 jobs:
   release:
-    if: github.event.pull_request.merged == true
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      github.event.pull_request.merged == true
     name: Create release
     runs-on: ubuntu-latest
+    env:
+      PR_NUMBER: ${{ inputs.pullRequest || github.event.pull_request.number }}
     steps:
-      - name: Checkout code
+      - name: Checkout release tooling
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.KUADRANT_DEV_PAT }}
+          ref: main
+          persist-credentials: false
+
+      - name: Resolve merged release PR
+        id: release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const resolve = require('./utils/release/resolve-release-pr.cjs');
+            await resolve({ github, context, core, prNumber: process.env.PR_NUMBER });
+
+      - name: Verify required PR checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh pr checks "$PR_NUMBER" --required --json name,bucket > "$RUNNER_TEMP/release-checks.json"
+          jq -e 'length > 0 and all(.[]; .bucket == "pass")' "$RUNNER_TEMP/release-checks.json"
+
+      - name: Checkout exact release commit
+        uses: actions/checkout@v4
+        with:
+          token: ${{ github.token }}
+          ref: ${{ steps.release.outputs.sha }}
+          path: release-source
           fetch-depth: 0
 
-      - name: Get version from Makefile
-        id: get_version
-        run: |
-          VERSION=$(grep "^VERSION ?=" Makefile | sed 's/VERSION ?= //')
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          echo "TAG=v$VERSION" >> $GITHUB_OUTPUT
-          echo "Releasing version: $VERSION (tag: v$VERSION)"
-
-      - name: Check if tag already exists
-        id: check_tag
-        run: |
-          TAG="${{ steps.get_version.outputs.TAG }}"
-          CURRENT_SHA="${{ github.sha }}"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            TAG_SHA=$(git rev-parse "$TAG^{}")
-            if [ "$TAG_SHA" = "$CURRENT_SHA" ]; then
-              echo "Tag $TAG already exists and points to current commit"
-              echo "exists=true" >> $GITHUB_OUTPUT
-            else
-              echo "::error::Tag $TAG already exists but points to a different commit"
-              echo "Tag SHA: $TAG_SHA"
-              echo "Current SHA: $CURRENT_SHA"
-              exit 1
-            fi
-          else
-            echo "Tag $TAG does not exist"
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Create and push tag
-        if: steps.check_tag.outputs.exists == 'false'
-        run: |
-          TAG="${{ steps.get_version.outputs.TAG }}"
-          git tag "$TAG"
-          git push origin "$TAG"
-          echo "Created and pushed tag: $TAG"
-
-      - name: Determine if prerelease
-        id: prerelease
-        run: |
-          VERSION="${{ steps.get_version.outputs.VERSION }}"
-          if [[ "$VERSION" =~ -(alpha|beta|rc) ]]; then
-            echo "prerelease=true" >> $GITHUB_OUTPUT
-          else
-            echo "prerelease=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Generate release notes
+      - name: Publish verified release
+        working-directory: release-source
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ steps.get_version.outputs.TAG }}
-        run: bash ./utils/release/github-release-changelog.sh
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: ${{ steps.get_version.outputs.TAG }}
-          tag_name: ${{ steps.get_version.outputs.TAG }}
-          body: ${{ env.releaseBody }}
-          target_commitish: ${{ github.ref_name }}
-          prerelease: ${{ steps.prerelease.outputs.prerelease }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_BRANCH: ${{ steps.release.outputs.branch }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+        run: bash ../utils/release/publish-release.sh
