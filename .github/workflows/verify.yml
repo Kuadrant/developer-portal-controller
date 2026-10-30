@@ -13,7 +13,8 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: '1.26'
+          check-latest: true
         id: go
       - name: Verify manifests
         run: make verify-manifests
@@ -26,7 +27,8 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: '1.26'
+          check-latest: true
       - name: Run make verify-fmt
         run: |
           make verify-fmt
@@ -39,7 +41,8 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: '1.26'
+          check-latest: true
       - name: Run go mod tidy
         run: |
           go mod tidy
@@ -55,7 +58,8 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: '1.26'
+          check-latest: true
       - name: Verify generate command
         run: |
           make verify-generate
@@ -68,7 +72,8 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: '1.26'
+          check-latest: true
       - name: Run make verify-helm
         run: |
           make verify-helm
