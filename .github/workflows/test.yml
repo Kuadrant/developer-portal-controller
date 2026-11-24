@@ -8,6 +8,8 @@ jobs:
   test:
     name: Run unittests
     runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: go1.27.3
     steps:
       - name: Clone the code
         uses: actions/checkout@v4
