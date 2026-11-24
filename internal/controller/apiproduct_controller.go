@@ -116,6 +116,7 @@ func (r *APIProductReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (c
 			if apierrors.IsConflict(err) {
 				// Ignore conflicts, resource might just be outdated.
 				logger.Info("failed to update status: resource might just be outdated")
+				//nolint:staticcheck // Requeue preserves exponential backoff; RequeueAfter would force fixed delay
 				return ctrl.Result{Requeue: true}, nil
 			}
 			return ctrl.Result{}, err
@@ -508,13 +509,13 @@ func (r *APIProductReconciler) openAPIStatus(ctx context.Context, apiProductObj 
 	// check the size of the openapi spec that was fetched and if its too large update the status
 	if openAPISize > maxSize {
 		return &devportalv1alpha1.OpenAPIStatus{
-				Raw:          "",
-				LastSyncTime: metav1.Now(),
-				MaxSizeUsed:  r.OpenAPISpecMaxSize,
-			}, &OpenAPISpecErr{
-				Reason:  "SpecSizeTooLarge",
-				Message: fmt.Sprintf("OpenAPI spec exceeds size limit (%d bytes). Controller will not retry; the spec needs to change", maxSize),
-			}
+			Raw:          "",
+			LastSyncTime: metav1.Now(),
+			MaxSizeUsed:  r.OpenAPISpecMaxSize,
+		}, &OpenAPISpecErr{
+			Reason:  "SpecSizeTooLarge",
+			Message: fmt.Sprintf("OpenAPI spec exceeds size limit (%d bytes). Controller will not retry; the spec needs to change", maxSize),
+		}
 
 	}
 

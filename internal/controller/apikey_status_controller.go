@@ -105,6 +105,7 @@ func (r *APIKeyStatusReconciler) Reconcile(ctx context.Context, _ ctrl.Request) 
 			if apierrors.IsConflict(err) {
 				// Ignore conflicts, resource might just be outdated.
 				logger.Info("failed to update status: resource might just be outdated")
+				//nolint:staticcheck // Requeue preserves exponential backoff; RequeueAfter would force fixed delay
 				return ctrl.Result{Requeue: true}, nil
 			}
 			return ctrl.Result{}, err

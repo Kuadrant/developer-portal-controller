@@ -8,6 +8,8 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: go1.27.3+auto
     steps:
       - name: Clone the code
         uses: actions/checkout@v4
@@ -20,4 +22,4 @@ jobs:
       - name: Run linter
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.12
+          version: v2.15

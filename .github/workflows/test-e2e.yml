@@ -8,6 +8,8 @@ jobs:
   test-e2e:
     name: Run E2E tests
     runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: go1.27.3
     steps:
       - name: Clone the code
         uses: actions/checkout@v4

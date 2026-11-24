@@ -8,6 +8,8 @@ jobs:
   verify-manifests:
     name: Verify manifests
     runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: go1.27.3+auto
     steps:
       - uses: actions/checkout@v5
       - name: Setup Go
@@ -20,6 +22,8 @@ jobs:
   verify-fmt:
     name: Verify fmt
     runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: go1.27.3+auto
     steps:
       - name: Check out code
         uses: actions/checkout@v5
@@ -33,6 +37,8 @@ jobs:
   verify-tidy:
     name: Verify tidy
     runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: go1.27.3+auto
     steps:
       - name: Check out code
         uses: actions/checkout@v5
@@ -49,6 +55,8 @@ jobs:
   verify-generate:
     name: Verify generate
     runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: go1.27.3+auto
     steps:
       - name: Check out code
         uses: actions/checkout@v5
@@ -62,6 +70,8 @@ jobs:
   verify-helm:
     name: Verify helm chart
     runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: go1.27.3+auto
     steps:
       - name: Check out code
         uses: actions/checkout@v5
